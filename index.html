@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TCGC ICS Plotting System</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body>
+  <!-- Login Screen -->
+  <section id="loginScreen" class="login-screen">
+    <div class="login-card">
+      <div class="brand-logos">
+        <img src="assets/img/tcgc-logo.jpg" alt="TCGC Logo">
+        <img src="assets/img/ics-logo.png" alt="ICS Logo">
+      </div>
+      <h2>ICS Plotting System</h2>
+      <p class="subtitle">Sign in to continue</p>
+      <p class="login-hint">First time? Default account is <strong>institute_head</strong> -- see the project README for the password.</p>
+      <form id="loginForm">
+        <div class="form-group">
+          <label for="loginUsername"><i class="fas fa-user"></i> Username</label>
+          <input id="loginUsername" autocomplete="username" required>
+        </div>
+        <div class="form-group">
+          <label for="loginPassword"><i class="fas fa-lock"></i> Password</label>
+          <input id="loginPassword" type="password" autocomplete="current-password" required>
+        </div>
+        <p id="loginError" class="login-error"></p>
+        <button id="loginSubmitBtn" class="btn btn-primary full-width" type="submit">
+          <i class="fas fa-right-to-bracket"></i> Log In
+        </button>
+      </form>
+    </div>
+  </section>
+
+  <!-- Toast Notifications -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- Confirm Dialog -->
+  <div id="confirmOverlay" class="modal-overlay hidden">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h3><i class="fas fa-triangle-exclamation"></i> <span id="confirmTitle">Confirm</span></h3>
+        <button class="modal-close" type="button" onclick="closeConfirm(false)"><i class="fas fa-xmark"></i></button>
+      </div>
+      <div class="confirm-body">
+        <i class="fas fa-circle-exclamation"></i>
+        <p id="confirmMessage">Are you sure?</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" type="button" onclick="closeConfirm(false)">Cancel</button>
+        <button class="btn btn-danger btn-solid" type="button" onclick="closeConfirm(true)"><i class="fas fa-trash"></i> Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main App Shell -->
+  <div id="appShell" class="hidden">
+
+  <button id="sidebarToggleBtn" class="sidebar-toggle" type="button" aria-label="Toggle navigation">
+    <i class="fas fa-bars"></i>
+  </button>
+  <div id="sidebarOverlay" class="sidebar-overlay"></div>
+
+  <!-- Sidebar Navigation -->
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <img src="assets/img/tcgc-logo.jpg" alt="TCGC Logo">
+      <img src="assets/img/ics-logo.png" alt="ICS Logo">
+    </div>
+    <div class="sidebar-header">
+      <h2>ICS Plotting System</h2>
+      <p class="small">Institute Head Dashboard</p>
+    </div>
+    <nav class="nav-menu">
+      <div class="nav-group-label">Operations</div>
+      <button class="nav-item active" data-view="dashboard">
+        <i class="fas fa-chart-line"></i>
+        <span>Dashboard</span>
+      </button>
+      <button class="nav-item" data-view="plotting">
+        <i class="fas fa-calendar-alt"></i>
+        <span>Plot Schedule</span>
+      </button>
+      <button class="nav-item" data-view="schedules">
+        <i class="fas fa-list-check"></i>
+        <span>Schedules</span>
+      </button>
+
+      <div class="nav-group-label">Management</div>
+      <button class="nav-item" data-view="courses">
+        <i class="fas fa-book"></i>
+        <span>Courses</span>
+      </button>
+      <button class="nav-item" data-view="sections">
+        <i class="fas fa-layer-group"></i>
+        <span>Sections</span>
+      </button>
+      <button class="nav-item" data-view="faculty">
+        <i class="fas fa-chalkboard-user"></i>
+        <span>Faculty</span>
+      </button>
+      <button class="nav-item" data-view="rooms">
+        <i class="fas fa-door-open"></i>
+        <span>Rooms</span>
+      </button>
+      <button class="nav-item" data-view="assignments">
+        <i class="fas fa-user-tie"></i>
+        <span>Faculty Courses</span>
+      </button>
+    </nav>
+    <div class="sidebar-footer">
+      <button id="logoutBtn" class="logout-btn" type="button">
+        <i class="fas fa-right-from-bracket"></i> Log Out
+      </button>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="main">
+    <!-- Top Bar -->
+    <header class="topbar">
+      <div class="topbar-content">
+        <h1>Tangub City Global College</h1>
+        <p>Institute of Computer Studies — Manual Plotting with Conflict Detection</p>
+      </div>
+    </header>
+
+    <!-- Legacy alert box (kept hidden; toasts are used instead) -->
+    <section id="alert" class="alert-box hidden"></section>
+
+    <!-- Dashboard View -->
+    <section id="dashboard" class="view active">
+      <div class="section-header">
+        <div class="section-header-text">
+          <h2><i class="fas fa-chart-line"></i> Dashboard Overview</h2>
+          <p>System statistics and applied validations</p>
+        </div>
+      </div>
+
+      <!-- Statistics Cards -->
+      <div class="stats-grid" id="stats"></div>
+
+      <!-- Recent Activity + Quick Actions -->
+      <div class="dashboard-grid">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-header-text">
+              <h3><i class="fas fa-clock-rotate-left"></i> Recent Activity</h3>
+              <p>Latest additions across the system</p>
+            </div>
+          </div>
+          <div class="activity-list" id="activityList"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-header-text">
+              <h3><i class="fas fa-bolt"></i> Quick Actions</h3>
+            </div>
+          </div>
+          <div class="quick-actions">
+            <button class="quick-action-btn" type="button" data-quick-nav="plotting">
+              <i class="fas fa-calendar-plus"></i> Plot a New Schedule
+            </button>
+            <button class="quick-action-btn" type="button" data-quick-open-modal="modalCourse">
+              <i class="fas fa-book"></i> Add a Course
+            </button>
+            <button class="quick-action-btn" type="button" data-quick-open-modal="modalFaculty">
+              <i class="fas fa-chalkboard-user"></i> Add Faculty
+            </button>
+            <button class="quick-action-btn" type="button" data-quick-open-modal="modalAssignment">
+              <i class="fas fa-user-tie"></i> Assign Faculty to Course
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Validations Panel -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-header-text">
+            <h3><i class="fas fa-shield-alt"></i> Applied Validations</h3>
+            <p>All conflict detection rules are actively enabled</p>
+          </div>
+        </div>
+        <div class="validation-grid">
+          <div class="validation-item">
+            <i class="fas fa-check-circle"></i>
+            <span>Room conflict for face-to-face classes</span>
+          </div>
+          <div class="validation-item">
+            <i class="fas fa-check-circle"></i>
+            <span>Instructor time conflict</span>
+          </div>
+          <div class="validation-item">
+            <i class="fas fa-check-circle"></i>
+            <span>Section/block time conflict</span>
+          </div>
+          <div class="validation-item">
+            <i class="fas fa-check-circle"></i>
+            <span>Lecture room vs laboratory room validation</span>
+          </div>
+          <div class="validation-item">
+            <i class="fas fa-check-circle"></i>
+            <span>Online classes do not occupy rooms</span>
+          </div>
+          <div class="validation-item">
+            <i class="fas fa-check-circle"></i>
+            <span>Faculty maximum of 4 preparations</span>
+          </div>
+          <div class="validation-item">
+            <i class="fas fa-check-circle"></i>
+            <span>Faculty-course eligibility checking</span>
+          </div>
+          <div class="validation-item">
+            <i class="fas fa-check-circle"></i>
+            <span>Laboratory 1 unit = 3 hours/week</span>
+          </div>
+          <div class="validation-item">
+            <i class="fas fa-check-circle"></i>
+            <span>Course year level matches section year level</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Plot Schedule View -->
+    <section id="plotting" class="view">
+      <div class="section-header">
+        <div class="section-header-text">
+          <h2><i class="fas fa-calendar-plus"></i> Plot New Schedule</h2>
+          <p>Add and manage class schedules with automatic conflict detection</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <form id="scheduleForm" class="form-grid">
+          <div class="form-group">
+            <label for="scheduleSchoolYear">
+              <i class="fas fa-calendar-week"></i> School Year
+              <span class="required">*</span>
+            </label>
+            <input id="scheduleSchoolYear" type="text" pattern="\d{4}-\d{4}" placeholder="e.g. 2026-2027" required>
+          </div>
+
+          <div class="form-group">
+            <label for="scheduleCourse">
+              <i class="fas fa-book"></i> Course
+              <span class="required">*</span>
+            </label>
+            <select id="scheduleCourse" required></select>
+          </div>
+
+          <div class="form-group">
+            <label for="scheduleComponent">
+              <i class="fas fa-layer-group"></i> Component
+              <span class="required">*</span>
+            </label>
+            <select id="scheduleComponent" required title="Select a course first" disabled>
+              <option value="">Select course first</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="scheduleSection">
+              <i class="fas fa-users"></i> Section
+              <span class="required">*</span>
+            </label>
+            <select id="scheduleSection" required></select>
+          </div>
+
+          <div class="form-group">
+            <label for="scheduleFaculty">
+              <i class="fas fa-chalkboard-user"></i> Faculty
+              <span class="required">*</span>
+            </label>
+            <select id="scheduleFaculty" required title="Select a course first" disabled>
+              <option value="">Select course first</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="scheduleRoom">
+              <i class="fas fa-door-open"></i> Room
+              <span class="required hidden" id="roomRequiredMark">*</span>
+            </label>
+            <select id="scheduleRoom"></select>
+            <p class="field-hint hidden" id="roomRequiredHint">SET 0 is always face-to-face, so a room is required.</p>
+          </div>
+
+          <div class="form-group">
+            <label for="setType">
+              <i class="fas fa-cogs"></i> Set Type
+              <span class="required">*</span>
+            </label>
+            <select id="setType" required>
+              <option value="set_0">SET 0 / Always Face-to-Face</option>
+              <option value="set_1">SET 1 / Hybrid Rotation A</option>
+              <option value="set_2">SET 2 / Hybrid Rotation B</option>
+            </select>
+          </div>
+
+          <div class="form-group full-width">
+            <label for="dayOfWeek">
+              <i class="fas fa-calendar-days"></i> Day Pattern
+              <span class="required">*</span>
+            </label>
+            <select id="dayOfWeek" required>
+              <option value="MWF">MWF - Monday/Wednesday/Friday</option>
+              <option value="TTH">TTH - Tuesday/Thursday</option>
+              <option value="MW">MW - Monday/Wednesday</option>
+              <option value="TF">TF - Tuesday/Friday</option>
+              <option value="Saturday">Saturday only</option>
+              <option value="Custom">Custom Days (choose below)</option>
+            </select>
+            <div id="customDaysRow" class="custom-days-row hidden">
+              <label class="day-checkbox"><input type="checkbox" value="Monday"> Mon</label>
+              <label class="day-checkbox"><input type="checkbox" value="Tuesday"> Tue</label>
+              <label class="day-checkbox"><input type="checkbox" value="Wednesday"> Wed</label>
+              <label class="day-checkbox"><input type="checkbox" value="Thursday"> Thu</label>
+              <label class="day-checkbox"><input type="checkbox" value="Friday"> Fri</label>
+              <label class="day-checkbox"><input type="checkbox" value="Saturday"> Sat</label>
+              <label class="day-checkbox"><input type="checkbox" value="Sunday"> Sun</label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="startTime">
+              <i class="fas fa-clock"></i> Start Time
+              <span class="required">*</span>
+            </label>
+            <select id="startTime" required></select>
+          </div>
+
+          <div class="form-group">
+            <label for="scheduleDuration">
+              <i class="fas fa-hourglass-half"></i> Duration
+              <span class="required">*</span>
+            </label>
+            <select id="scheduleDuration" required>
+              <option value="30">30 Minutes</option>
+              <option value="60" selected>1 Hour</option>
+              <option value="90">1 Hour 30 Minutes</option>
+              <option value="120">2 Hours</option>
+              <option value="150">2 Hours 30 Minutes</option>
+              <option value="180">3 Hours</option>
+              <option value="custom">Custom (set end time manually)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="endTime">
+              <i class="fas fa-clock"></i> End Time
+              <span class="required">*</span>
+              <span class="auto-computed-tag" id="endTimeAutoTag">Auto-computed</span>
+            </label>
+            <select id="endTime" required disabled></select>
+          </div>
+
+          <div class="form-group full-width">
+            <div id="conflictPreview" class="conflict-preview"></div>
+          </div>
+
+          <div class="form-group full-width">
+            <label for="notes">
+              <i class="fas fa-sticky-note"></i> Notes
+            </label>
+            <input id="notes" placeholder="Add optional notes...">
+          </div>
+
+          <div class="form-actions">
+            <button id="scheduleCancelBtn" class="btn btn-secondary hidden" type="button" onclick="cancelEdit('schedules')">
+              <i class="fas fa-xmark"></i> Cancel Edit
+            </button>
+            <button id="scheduleSubmitBtn" class="btn btn-primary" type="submit">
+              <i class="fas fa-save"></i> Save Schedule
+            </button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- Schedules View -->
+    <section id="schedules" class="view">
+      <div class="section-header">
+        <div class="section-header-text">
+          <h2><i class="fas fa-list-check"></i> Schedule List</h2>
+          <p>View and manage all plotted schedules</p>
+        </div>
+        <button class="print-btn" onclick="window.print()" title="Print this schedule list">
+          <i class="fas fa-print"></i> <span>Print</span>
+        </button>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-header-text">
+            <h3><i class="fas fa-filter"></i> Filter</h3>
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="filterSchoolYear"><i class="fas fa-calendar-week"></i> School Year</label>
+            <select id="filterSchoolYear"><option value="">All School Years</option></select>
+          </div>
+          <div class="form-group">
+            <label for="filterYear"><i class="fas fa-graduation-cap"></i> Year Level</label>
+            <select id="filterYear">
+              <option value="">All Year Levels</option>
+              <option value="1">1st Year</option>
+              <option value="2">2nd Year</option>
+              <option value="3">3rd Year</option>
+              <option value="4">4th Year</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="filterSemester"><i class="fas fa-calendar"></i> Semester</label>
+            <select id="filterSemester">
+              <option value="">All Semesters</option>
+              <option value="first_semester">First Semester</option>
+              <option value="second_semester">Second Semester</option>
+              <option value="summer">Summer</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="filterSection"><i class="fas fa-users"></i> Section</label>
+            <select id="filterSection"><option value="">All Sections</option></select>
+          </div>
+          <div class="form-group">
+            <label for="filterFaculty"><i class="fas fa-chalkboard-user"></i> Faculty</label>
+            <select id="filterFaculty"><option value="">All Faculty</option></select>
+          </div>
+          <div class="form-actions">
+            <button id="clearFiltersBtn" class="btn btn-secondary" type="button">
+              <i class="fas fa-filter-circle-xmark"></i> Clear Filters
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="table-toolbar">
+          <div class="table-search">
+            <i class="fas fa-search"></i>
+            <input id="schedulesSearch" placeholder="Search course, faculty, section...">
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table id="schedulesTable"></table>
+        </div>
+        <div class="pagination-bar" id="schedulesTablePagination"></div>
+      </div>
+    </section>
+
+    <!-- Courses View -->
+    <section id="courses" class="view">
+      <div class="section-header">
+        <div class="section-header-text">
+          <h2><i class="fas fa-book"></i> Courses</h2>
+          <p>Add and manage courses</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="table-toolbar">
+          <div class="table-search">
+            <i class="fas fa-search"></i>
+            <input id="coursesSearch" placeholder="Search code or title...">
+          </div>
+          <button class="btn btn-primary" type="button" onclick="openEntityModal('courses')">
+            <i class="fas fa-plus"></i> Add Course
+          </button>
+        </div>
+        <div class="table-responsive">
+          <table id="coursesTable"></table>
+        </div>
+        <div class="pagination-bar" id="coursesTablePagination"></div>
+      </div>
+    </section>
+
+    <!-- Sections View -->
+    <section id="sections" class="view">
+      <div class="section-header">
+        <div class="section-header-text">
+          <h2><i class="fas fa-layer-group"></i> Sections</h2>
+          <p>Create and manage student sections</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="table-toolbar">
+          <div class="table-search">
+            <i class="fas fa-search"></i>
+            <input id="sectionsSearch" placeholder="Search section...">
+          </div>
+          <button class="btn btn-primary" type="button" onclick="openEntityModal('sections')">
+            <i class="fas fa-plus"></i> Add Section
+          </button>
+        </div>
+        <div class="table-responsive">
+          <table id="sectionsTable"></table>
+        </div>
+        <div class="pagination-bar" id="sectionsTablePagination"></div>
+      </div>
+    </section>
+
+    <!-- Faculty View -->
+    <section id="faculty" class="view">
+      <div class="section-header">
+        <div class="section-header-text">
+          <h2><i class="fas fa-chalkboard-user"></i> Faculty</h2>
+          <p>Manage faculty members and their assignments</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="table-toolbar">
+          <div class="table-search">
+            <i class="fas fa-search"></i>
+            <input id="facultySearch" placeholder="Search faculty name...">
+          </div>
+          <button class="btn btn-primary" type="button" onclick="openEntityModal('faculty')">
+            <i class="fas fa-plus"></i> Add Faculty
+          </button>
+        </div>
+        <div class="table-responsive">
+          <table id="facultyTable"></table>
+        </div>
+        <div class="pagination-bar" id="facultyTablePagination"></div>
+      </div>
+    </section>
+
+    <!-- Rooms View -->
+    <section id="rooms" class="view">
+      <div class="section-header">
+        <div class="section-header-text">
+          <h2><i class="fas fa-door-open"></i> Rooms</h2>
+          <p>Create and manage classroom resources</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="table-toolbar">
+          <div class="table-search">
+            <i class="fas fa-search"></i>
+            <input id="roomsSearch" placeholder="Search room name...">
+          </div>
+          <button class="btn btn-primary" type="button" onclick="openEntityModal('rooms')">
+            <i class="fas fa-plus"></i> Add Room
+          </button>
+        </div>
+        <div class="table-responsive">
+          <table id="roomsTable"></table>
+        </div>
+        <div class="pagination-bar" id="roomsTablePagination"></div>
+      </div>
+    </section>
+
+    <!-- Faculty Courses View -->
+    <section id="assignments" class="view">
+      <div class="section-header">
+        <div class="section-header-text">
+          <h2><i class="fas fa-user-tie"></i> Faculty Course Assignments</h2>
+          <p>Assign courses to faculty members</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="table-toolbar">
+          <div class="table-search">
+            <i class="fas fa-search"></i>
+            <input id="assignmentsSearch" placeholder="Search faculty or course...">
+          </div>
+          <button class="btn btn-primary" type="button" onclick="openEntityModal('assignments')">
+            <i class="fas fa-plus"></i> Assign Course
+          </button>
+        </div>
+        <div class="table-responsive">
+          <table id="assignmentsTable"></table>
+        </div>
+        <div class="pagination-bar" id="assignmentsTablePagination"></div>
+      </div>
+    </section>
+  </main>
+  </div>
+
+  <!-- ===================== MODALS (Add/Edit forms) ===================== -->
+
+  <div class="modal-overlay hidden" id="modalCourse">
+    <div class="modal">
+      <div class="modal-header">
+        <h3><i class="fas fa-book"></i> <span id="modalCourseTitle">Add Course</span></h3>
+        <button class="modal-close" type="button" onclick="closeEntityModal('courses')"><i class="fas fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <form id="courseForm" class="form-grid">
+          <div class="form-group">
+            <label for="courseCode"><i class="fas fa-hashtag"></i> Code <span class="required">*</span></label>
+            <input id="courseCode" required>
+          </div>
+          <div class="form-group">
+            <label for="courseTitle"><i class="fas fa-heading"></i> Title <span class="required">*</span></label>
+            <input id="courseTitle" required>
+          </div>
+          <div class="form-group">
+            <label for="courseYear"><i class="fas fa-graduation-cap"></i> Year Level <span class="required">*</span></label>
+            <input id="courseYear" type="number" min="1" max="4" required>
+          </div>
+          <div class="form-group">
+            <label for="courseSemester"><i class="fas fa-calendar"></i> Semester <span class="required">*</span></label>
+            <select id="courseSemester">
+              <option value="first_semester">First Semester</option>
+              <option value="second_semester">Second Semester</option>
+              <option value="summer">Summer</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="lecUnits"><i class="fas fa-edit"></i> Lec Units</label>
+            <input id="lecUnits" type="number" min="0" step="0.5" value="0">
+          </div>
+          <div class="form-group">
+            <label for="labUnits"><i class="fas fa-flask"></i> Lab Units</label>
+            <input id="labUnits" type="number" min="0" step="0.5" value="0">
+          </div>
+          <div class="form-group">
+            <label for="category"><i class="fas fa-tag"></i> Category <span class="required">*</span></label>
+            <select id="category">
+              <option value="major">Major</option>
+              <option value="ge">General Education</option>
+              <option value="elective">Elective</option>
+              <option value="pathfit">PATH-FIT</option>
+              <option value="nstp">NSTP</option>
+              <option value="luxmundi">LuxMundi</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" type="button" onclick="closeEntityModal('courses')">Cancel</button>
+        <button id="courseSubmitBtn" class="btn btn-primary" type="submit" form="courseForm">
+          <i class="fas fa-plus"></i> Add Course
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay hidden" id="modalSection">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h3><i class="fas fa-layer-group"></i> <span id="modalSectionTitle">Add Section</span></h3>
+        <button class="modal-close" type="button" onclick="closeEntityModal('sections')"><i class="fas fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <form id="sectionForm" class="form-grid">
+          <div class="form-group">
+            <label for="sectionYear"><i class="fas fa-graduation-cap"></i> Year Level <span class="required">*</span></label>
+            <input id="sectionYear" type="number" min="1" max="4" required>
+          </div>
+          <div class="form-group">
+            <label for="sectionNo"><i class="fas fa-hashtag"></i> Section No. <span class="required">*</span></label>
+            <input id="sectionNo" placeholder="e.g. 172" required>
+          </div>
+          <div class="form-group">
+            <label for="studentCount"><i class="fas fa-users"></i> Student Count <span class="required">*</span></label>
+            <input id="studentCount" type="number" min="1" max="30" value="30" required>
+            <p class="field-hint">Maximum of 30 students per section.</p>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" type="button" onclick="closeEntityModal('sections')">Cancel</button>
+        <button id="sectionSubmitBtn" class="btn btn-primary" type="submit" form="sectionForm">
+          <i class="fas fa-plus"></i> Add Section
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay hidden" id="modalFaculty">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h3><i class="fas fa-chalkboard-user"></i> <span id="modalFacultyTitle">Add Faculty</span></h3>
+        <button class="modal-close" type="button" onclick="closeEntityModal('faculty')"><i class="fas fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <form id="facultyForm" class="form-grid">
+          <div class="form-group">
+            <label for="facultyName"><i class="fas fa-user"></i> Faculty Name <span class="required">*</span></label>
+            <input id="facultyName" required>
+          </div>
+          <div class="form-group">
+            <label for="maxPreparations"><i class="fas fa-book-open"></i> Max Preparations <span class="required">*</span></label>
+            <input id="maxPreparations" type="number" min="1" max="4" value="4">
+          </div>
+          <div class="form-group form-check">
+            <label for="facultyActive"><input id="facultyActive" type="checkbox" checked> Available for new schedules</label>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" type="button" onclick="closeEntityModal('faculty')">Cancel</button>
+        <button id="facultySubmitBtn" class="btn btn-primary" type="submit" form="facultyForm">
+          <i class="fas fa-plus"></i> Add Faculty
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay hidden" id="modalRoom">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h3><i class="fas fa-door-open"></i> <span id="modalRoomTitle">Add Room</span></h3>
+        <button class="modal-close" type="button" onclick="closeEntityModal('rooms')"><i class="fas fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <form id="roomForm" class="form-grid">
+          <div class="form-group">
+            <label for="roomName"><i class="fas fa-door-open"></i> Room Name <span class="required">*</span></label>
+            <input id="roomName" required>
+          </div>
+          <div class="form-group">
+            <label for="roomType"><i class="fas fa-cogs"></i> Room Type <span class="required">*</span></label>
+            <select id="roomType">
+              <option value="lecture">Lecture</option>
+              <option value="laboratory">Laboratory</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="roomCapacity"><i class="fas fa-users"></i> Capacity <span class="required">*</span></label>
+            <input id="roomCapacity" type="number" min="1" required>
+          </div>
+          <div class="form-group form-check">
+            <label for="roomActive"><input id="roomActive" type="checkbox" checked> Available for new schedules</label>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" type="button" onclick="closeEntityModal('rooms')">Cancel</button>
+        <button id="roomSubmitBtn" class="btn btn-primary" type="submit" form="roomForm">
+          <i class="fas fa-plus"></i> Add Room
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay hidden" id="modalAssignment">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h3><i class="fas fa-user-tie"></i> <span id="modalAssignmentTitle">Assign Course to Faculty</span></h3>
+        <button class="modal-close" type="button" onclick="closeEntityModal('assignments')"><i class="fas fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <form id="facultyCourseForm" class="form-grid">
+          <div class="form-group">
+            <label for="assignFaculty"><i class="fas fa-chalkboard-user"></i> Faculty <span class="required">*</span></label>
+            <select id="assignFaculty" required></select>
+          </div>
+          <div class="form-group">
+            <label for="assignCourse"><i class="fas fa-book"></i> Course <span class="required">*</span></label>
+            <select id="assignCourse" required></select>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" type="button" onclick="closeEntityModal('assignments')">Cancel</button>
+        <button id="assignmentSubmitBtn" class="btn btn-primary" type="submit" form="facultyCourseForm">
+          <i class="fas fa-plus"></i> Assign
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/js/app.js"></script>
+</body>
+</html>
