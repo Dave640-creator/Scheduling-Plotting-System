@@ -111,9 +111,13 @@ function alertBox(message, type = 'success') {
 
 let confirmResolver = null;
 
-function showConfirm(message, title = 'Confirm Deletion') {
+function showConfirm(message, title = 'Confirm Deletion', opts = {}) {
+  const { confirmLabel = 'Delete', confirmIcon = 'fa-trash', danger = true } = opts;
   $('confirmTitle').textContent = title;
   $('confirmMessage').innerHTML = message;
+  $('confirmAcceptBtn').innerHTML = `<i class="fas ${confirmIcon}"></i> ${escapeHtml(confirmLabel)}`;
+  $('confirmAcceptBtn').classList.toggle('btn-danger', danger);
+  $('confirmAcceptBtn').classList.toggle('btn-primary', !danger);
   $('confirmOverlay').classList.remove('hidden');
   document.body.style.overflow = 'hidden';
   return new Promise((resolve) => { confirmResolver = resolve; });
@@ -1492,11 +1496,16 @@ function initRealtimeValidation() {
 }
 initRealtimeValidation();
 
-function formSubmit(id, build, endpoint, entity, onSuccess) {
+function formSubmit(id, build, endpoint, entity, onSuccess, preSubmitCheck) {
   $(id).addEventListener('submit', async (e) => {
     e.preventDefault();
     if (!validateForm(id)) return;
     const cfg = formConfig[entity];
+    const editId = editing[entity];
+    if (preSubmitCheck) {
+      const proceed = await preSubmitCheck(editId, build());
+      if (!proceed) return;
+    }
     const submitBtn = cfg ? $(cfg.submitBtnId) : e.target.querySelector('[type="submit"]');
     const originalLabel = submitBtn ? submitBtn.innerHTML : null;
     if (submitBtn) {
@@ -1505,7 +1514,6 @@ function formSubmit(id, build, endpoint, entity, onSuccess) {
     }
     try {
       const payload = build();
-      const editId = editing[entity];
       if (editId) {
         payload.id = editId;
         await request(endpoint, { method: 'PUT', body: JSON.stringify(payload) });
@@ -1537,21 +1545,24 @@ function formSubmit(id, build, endpoint, entity, onSuccess) {
 
 /**
  * Editing a course's units/year-level/semester after schedules already exist
- * for it doesn't retroactively re-check those schedules on the backend --
- * this gives the institute head a heads-up so they know to go re-check them.
+ * for it doesn't retroactively re-check those schedules on the backend.
+ * Per UX review, this now warns and asks for confirmation BEFORE saving
+ * (not as a heads-up toast after the fact), so the institute head can back
+ * out of the change instead of discovering the impact only afterward.
  */
-function warnAffectedSchedulesForCourseEdit(editId, payload) {
-  if (!editId) return;
+async function confirmCourseEditImpact(editId, payload) {
+  if (!editId) return true;
   const before = state.courses.find((c) => Number(c.id) === Number(editId));
-  if (!before) return;
+  if (!before) return true;
   const changed = ['year_level', 'semester_type', 'lec_units', 'lab_units'].some((k) => String(before[k]) !== String(payload[k]));
-  if (!changed) return;
+  if (!changed) return true;
   const affected = state.schedules.filter((s) => Number(s.course_id) === Number(editId));
-  if (!affected.length) return;
-  setTimeout(() => showToast(`Heads up: ${affected.length} existing schedule(s) use this course. They were NOT auto-adjusted -- please re-check them in the Schedules tab against the updated units/year/semester.`, 'warning'), 300);
+  if (!affected.length) return true;
+  const message = `This course is already used in <strong>${affected.length}</strong> existing schedule${affected.length === 1 ? '' : 's'}. Changing units, year level, or semester will <strong>not</strong> automatically update those schedules -- you'll need to re-check them yourself afterward in the Schedules tab.`;
+  return showConfirm(message, 'This Change Affects Existing Schedules', { confirmLabel: 'Update Anyway', confirmIcon: 'fa-check', danger: false });
 }
 
-formSubmit('courseForm', () => ({ course_code: $('courseCode').value, course_title: $('courseTitle').value, year_level: $('courseYear').value, semester_type: $('courseSemester').value, lec_units: $('lecUnits').value, lab_units: $('labUnits').value, category: $('category').value }), 'courses.php', 'courses', warnAffectedSchedulesForCourseEdit);
+formSubmit('courseForm', () => ({ course_code: $('courseCode').value, course_title: $('courseTitle').value, year_level: $('courseYear').value, semester_type: $('courseSemester').value, lec_units: $('lecUnits').value, lab_units: $('labUnits').value, category: $('category').value }), 'courses.php', 'courses', null, confirmCourseEditImpact);
 formSubmit('sectionForm', () => ({ year_level: $('sectionYear').value, section_no: $('sectionNo').value, student_count: $('studentCount').value }), 'sections.php', 'sections');
 formSubmit('facultyForm', () => ({ faculty_name: $('facultyName').value, max_preparations: $('maxPreparations').value, is_active: $('facultyActive').checked ? 1 : 0 }), 'faculty.php', 'faculty');
 formSubmit('roomForm', () => ({ room_name: $('roomName').value, room_type: $('roomType').value, capacity: $('roomCapacity').value, is_active: $('roomActive').checked ? 1 : 0 }), 'rooms.php', 'rooms');
