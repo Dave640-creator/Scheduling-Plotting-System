@@ -135,6 +135,20 @@
     <!-- Legacy alert box (kept hidden; toasts are used instead) -->
     <section id="alert" class="alert-box hidden"></section>
 
+    <!-- Print-only letterhead. Hidden on screen; shown and populated by JS
+         only when the user clicks Print, so the printed page reads as a
+         clean official document instead of the app's screen UI. -->
+    <div id="printLetterhead" class="print-letterhead">
+      <div class="print-letterhead-logos">
+        <img src="assets/img/tcgc-logo.jpg" alt="TCGC Logo">
+        <img src="assets/img/ics-logo.png" alt="ICS Logo">
+      </div>
+      <h1>Tangub City Global College</h1>
+      <p>Institute of Computer Studies</p>
+      <h2 id="printLetterheadTitle"></h2>
+      <p id="printLetterheadSubtitle"></p>
+    </div>
+
     <!-- Dashboard View -->
     <section id="dashboard" class="view active">
       <div class="section-header">
@@ -389,16 +403,16 @@
 
     <!-- Schedules View -->
     <section id="schedules" class="view">
-      <div class="section-header">
+      <div class="section-header no-print">
         <div class="section-header-text">
           <h2><i class="fas fa-list-check"></i> Schedule List</h2>
           <p>View and manage all plotted schedules</p>
         </div>
-        <button class="print-btn" onclick="window.print()" title="Print this schedule list">
+        <button class="print-btn" onclick="printSchedules()" title="Print this schedule list">
           <i class="fas fa-print"></i> <span>Print</span>
         </button>
       </div>
-      <div class="card">
+      <div class="card no-print">
         <div class="card-header">
           <div class="card-header-text">
             <h3><i class="fas fa-filter"></i> Filter</h3>
@@ -459,12 +473,12 @@
 
     <!-- Timetables View -->
     <section id="timetables" class="view">
-      <div class="section-header">
+      <div class="section-header no-print">
         <div class="section-header-text">
           <h2><i class="fas fa-table-cells"></i> Timetables</h2>
           <p>Printable weekly schedule by section or by faculty</p>
         </div>
-        <button class="print-btn" onclick="window.print()" title="Print this timetable">
+        <button class="print-btn" onclick="printTimetable()" title="Print this timetable">
           <i class="fas fa-print"></i> <span>Print</span>
         </button>
       </div>

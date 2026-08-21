@@ -483,6 +483,46 @@ function renderTimetable() {
   $('ttGrid').innerHTML = html;
 }
 
+/**
+ * Fill in the print-only letterhead with real content, then trigger the
+ * browser print dialog. The letterhead itself is invisible on screen
+ * (display:none) and only shown by the @media print stylesheet, so the
+ * screen UI is unaffected -- the printed page shows a clean official
+ * document instead of the app's sidebar/topbar/filter controls.
+ */
+function fillPrintLetterhead(title, subtitle) {
+  $('printLetterheadTitle').textContent = title;
+  $('printLetterheadSubtitle').textContent = subtitle;
+}
+
+function printSchedules() {
+  const parts = [];
+  if (scheduleFilters.schoolYear) parts.push(`SY ${scheduleFilters.schoolYear}`);
+  if (scheduleFilters.semester) {
+    const label = { first_semester: 'First Semester', second_semester: 'Second Semester', summer: 'Summer' }[scheduleFilters.semester] || scheduleFilters.semester;
+    parts.push(label);
+  }
+  if (scheduleFilters.year) parts.push(`Year ${scheduleFilters.year}`);
+  if (scheduleFilters.section) {
+    const sec = state.sections.find((s) => String(s.id) === String(scheduleFilters.section));
+    if (sec) parts.push(`${sec.program_code} ${sec.year_level} - Section ${sec.section_no}`);
+  }
+  if (scheduleFilters.faculty) {
+    const fac = state.faculty.find((f) => String(f.id) === String(scheduleFilters.faculty));
+    if (fac) parts.push(fac.faculty_name);
+  }
+  fillPrintLetterhead('Class Schedule', parts.length ? parts.join(' \u2014 ') : 'All Schedules');
+  window.print();
+}
+window.printSchedules = printSchedules;
+
+function printTimetable() {
+  const heading = $('ttHeading').textContent.trim();
+  fillPrintLetterhead(ttMode === 'section' ? 'Section Timetable' : 'Faculty Load Timetable', heading);
+  window.print();
+}
+window.printTimetable = printTimetable;
+
 document.querySelectorAll('.timetable-tab').forEach((btn) => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.timetable-tab').forEach((b) => b.classList.remove('active'));
