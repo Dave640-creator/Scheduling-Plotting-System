@@ -25,22 +25,50 @@ try {
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $d = input_json();
         require_fields($d, ['faculty_id','course_id']);
-        $stmt = $pdo->prepare('INSERT IGNORE INTO faculty_courses(faculty_id,course_id) VALUES(?,?)');
-        $stmt->execute([(int)$d['faculty_id'], (int)$d['course_id']]);
-        json_response(true, 'Course assigned to faculty');
+        $facultyId = (int)$d['faculty_id'];
+        $courseId = (int)$d['course_id'];
+
+        // Check for the duplicate ourselves first so we can name the
+        // faculty/course involved, instead of surfacing a generic database
+        // constraint error only after the insert is attempted (bug #7).
+        $dupStmt = $pdo->prepare('SELECT f.faculty_name, c.course_code FROM faculty_courses fc
+            JOIN faculty f ON f.id = fc.faculty_id JOIN courses c ON c.id = fc.course_id
+            WHERE fc.faculty_id=? AND fc.course_id=?');
+        $dupStmt->execute([$facultyId, $courseId]);
+        if ($dup = $dupStmt->fetch()) {
+            json_response(false, $dup['faculty_name'] . ' is already assigned to ' . $dup['course_code'] . '.', null, 422);
+        }
+
+        $stmt = $pdo->prepare('INSERT INTO faculty_courses(faculty_id,course_id) VALUES(?,?)');
+        $stmt->execute([$facultyId, $courseId]);
+        json_response(true, 'Course assigned to faculty', ['id'=>$pdo->lastInsertId()], 201);
     }
     if ($_SERVER['REQUEST_METHOD'] === 'PUT') {
         $d = input_json();
         $id = (int)($d['id'] ?? 0);
         if (!$id) json_response(false, 'Missing id', null, 422);
         require_fields($d, ['faculty_id','course_id']);
+        $facultyId = (int)$d['faculty_id'];
+        $courseId = (int)$d['course_id'];
+
+        $dupStmt = $pdo->prepare('SELECT f.faculty_name, c.course_code FROM faculty_courses fc
+            JOIN faculty f ON f.id = fc.faculty_id JOIN courses c ON c.id = fc.course_id
+            WHERE fc.faculty_id=? AND fc.course_id=? AND fc.id<>?');
+        $dupStmt->execute([$facultyId, $courseId, $id]);
+        if ($dup = $dupStmt->fetch()) {
+            json_response(false, $dup['faculty_name'] . ' is already assigned to ' . $dup['course_code'] . '.', null, 422);
+        }
+
         $stmt = $pdo->prepare('UPDATE faculty_courses SET faculty_id=?, course_id=? WHERE id=?');
-        $stmt->execute([(int)$d['faculty_id'], (int)$d['course_id'], $id]);
+        $stmt->execute([$facultyId, $courseId, $id]);
         json_response(true, 'Assignment updated successfully');
     }
     if ($_SERVER['REQUEST_METHOD'] === 'DELETE') {
         $id = (int)($_GET['id'] ?? 0);
-        $pdo->prepare('DELETE FROM faculty_courses WHERE id=?')->execute([$id]);
+        if (!$id) json_response(false, 'Missing id', null, 422);
+        $stmt = $pdo->prepare('DELETE FROM faculty_courses WHERE id=?');
+        $stmt->execute([$id]);
+        if ($stmt->rowCount() === 0) json_response(false, 'Faculty course assignment not found.', null, 404);
         json_response(true, 'Faculty course assignment removed');
     }
     json_response(false, 'Method not allowed', null, 405);

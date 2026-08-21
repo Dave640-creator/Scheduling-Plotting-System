@@ -7,17 +7,19 @@ try {
     // whether to show the login screen or the dashboard.
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         if (empty($_SESSION['user_id'])) {
-            json_response(true, 'Not logged in', ['logged_in' => false]);
+            json_response(true, 'Not logged in', ['logged_in' => false, 'csrf_token' => csrf_token()]);
         }
         json_response(true, 'Session active', [
             'logged_in' => true,
             'full_name' => $_SESSION['full_name'],
             'username' => $_SESSION['username'],
+            'csrf_token' => csrf_token(),
         ]);
     }
 
     // Log in.
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        require_csrf();
         $d = input_json();
         require_fields($d, ['username', 'password']);
 
@@ -37,11 +39,13 @@ try {
         json_response(true, 'Logged in successfully', [
             'full_name' => $user['full_name'],
             'username' => $user['username'],
+            'csrf_token' => csrf_token(),
         ]);
     }
 
     // Log out.
     if ($_SERVER['REQUEST_METHOD'] === 'DELETE') {
+        require_csrf();
         $_SESSION = [];
         session_destroy();
         json_response(true, 'Logged out successfully');

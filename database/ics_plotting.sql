@@ -28,7 +28,9 @@ CREATE TABLE courses (
   lab_units DECIMAL(3,1) NOT NULL DEFAULT 0,
   category ENUM('major','ge','pathfit','nstp','luxmundi','elective','other') DEFAULT 'major',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY unique_course (course_code, semester_type, year_level)
+  UNIQUE KEY unique_course (course_code, semester_type, year_level),
+  CONSTRAINT chk_courses_lec_units CHECK (lec_units >= 0),
+  CONSTRAINT chk_courses_lab_units CHECK (lab_units >= 0)
 );
 
 CREATE TABLE sections (
@@ -38,7 +40,8 @@ CREATE TABLE sections (
   section_no VARCHAR(20) NOT NULL,
   student_count INT NOT NULL DEFAULT 30,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY unique_section (program_code, year_level, section_no)
+  UNIQUE KEY unique_section (program_code, year_level, section_no),
+  CONSTRAINT chk_sections_student_count CHECK (student_count BETWEEN 1 AND 30)
 );
 
 CREATE TABLE rooms (
@@ -47,7 +50,8 @@ CREATE TABLE rooms (
   room_type ENUM('lecture','laboratory') NOT NULL,
   capacity INT NOT NULL,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT chk_rooms_capacity CHECK (capacity > 0)
 );
 
 CREATE TABLE faculty (
@@ -55,7 +59,8 @@ CREATE TABLE faculty (
   faculty_name VARCHAR(100) NOT NULL,
   max_preparations INT NOT NULL DEFAULT 4,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT chk_faculty_max_preparations CHECK (max_preparations BETWEEN 1 AND 20)
 );
 
 CREATE TABLE faculty_courses (

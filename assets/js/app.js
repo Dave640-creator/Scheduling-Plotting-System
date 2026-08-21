@@ -37,13 +37,25 @@ function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// Populated from any response that includes one (auth.php GET/POST). Sent
+// back on every state-changing request so the server can verify the request
+// actually came from this app and not another site riding the session
+// cookie (CSRF protection).
+let csrfToken = null;
+
 async function request(endpoint, options = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  const method = (options.method || 'GET').toUpperCase();
+  if (csrfToken && method !== 'GET') {
+    headers['X-CSRF-Token'] = csrfToken;
+  }
   const res = await fetch(API + endpoint, {
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     credentials: 'same-origin',
     ...options,
   });
   const json = await res.json();
+  if (json.data && json.data.csrf_token) csrfToken = json.data.csrf_token;
   if (res.status === 401) showLogin();
   if (!json.success) throw new Error(json.message || 'Request failed');
   return json.data;

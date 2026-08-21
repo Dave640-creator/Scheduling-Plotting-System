@@ -263,7 +263,10 @@ try {
 
     if ($_SERVER['REQUEST_METHOD'] === 'DELETE') {
         $id = (int)($_GET['id'] ?? 0);
-        $pdo->prepare('DELETE FROM schedules WHERE id=?')->execute([$id]);
+        if (!$id) json_response(false, 'Missing id', null, 422);
+        $stmt = $pdo->prepare('DELETE FROM schedules WHERE id=?');
+        $stmt->execute([$id]);
+        if ($stmt->rowCount() === 0) json_response(false, 'Schedule not found.', null, 404);
         json_response(true, 'Schedule deleted');
     }
 
