@@ -403,6 +403,15 @@ select:focus-visible,
   display: none !important;
 }
 
+/* The unsaved-changes confirm dialog can open on top of an already-open
+   entity modal (e.g. clicking X on a dirty Add Faculty form). It shares
+   .modal-overlay's z-index and sits earlier in the DOM, so without this
+   it renders BEHIND the entity modal -- invisible and unclickable, making
+   the app look frozen. Force it above every other overlay. */
+#confirmOverlay {
+  z-index: 2100;
+}
+
 .modal {
   background: white;
   border-radius: var(--radius-lg);

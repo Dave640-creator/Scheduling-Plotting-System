@@ -561,6 +561,9 @@
             <i class="fas fa-search"></i>
             <input id="coursesSearch" placeholder="Search code or title...">
           </div>
+          <button class="btn btn-secondary" type="button" onclick="triggerCsvImport('courses')">
+            <i class="fas fa-file-csv"></i> Import CSV
+          </button>
           <button class="btn btn-primary" type="button" onclick="openEntityModal('courses')">
             <i class="fas fa-plus"></i> Add Course
           </button>
@@ -587,6 +590,9 @@
             <i class="fas fa-search"></i>
             <input id="sectionsSearch" placeholder="Search section...">
           </div>
+          <button class="btn btn-secondary" type="button" onclick="triggerCsvImport('sections')">
+            <i class="fas fa-file-csv"></i> Import CSV
+          </button>
           <button class="btn btn-primary" type="button" onclick="openEntityModal('sections')">
             <i class="fas fa-plus"></i> Add Section
           </button>
@@ -861,6 +867,36 @@
         <button class="btn btn-secondary" type="button" onclick="requestCloseEntityModal('assignments')">Cancel</button>
         <button id="assignmentSubmitBtn" class="btn btn-primary" type="submit" form="facultyCourseForm">
           <i class="fas fa-plus"></i> Assign
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden file pickers for CSV Import (Courses / Sections). One shared
+       results modal reports what got imported and lists any skipped rows. -->
+  <input type="file" id="importFileInput" accept=".csv,text/csv" class="hidden">
+
+  <div class="modal-overlay hidden" id="modalImport">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h3><i class="fas fa-file-csv"></i> <span id="modalImportTitle">Import CSV</span></h3>
+        <button class="modal-close" type="button" onclick="closeImportModal()" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <p id="importIntro" class="field-hint"></p>
+        <p>
+          <a href="#" id="importTemplateLink" onclick="return false;"><i class="fas fa-download"></i> Download CSV template</a>
+        </p>
+        <div id="importResults" class="hidden">
+          <p id="importSummary" style="font-weight:600;"></p>
+          <ul id="importErrorList" style="max-height:220px; overflow-y:auto; margin:0; padding-left:1.1em;"></ul>
+        </div>
+        <div id="importLoading" class="hidden field-hint"><i class="fas fa-spinner fa-spin"></i> Importing, please wait...</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" type="button" onclick="closeImportModal()">Close</button>
+        <button id="importChooseFileBtn" class="btn btn-primary" type="button" onclick="$('importFileInput').click()">
+          <i class="fas fa-upload"></i> Choose CSV File
         </button>
       </div>
     </div>

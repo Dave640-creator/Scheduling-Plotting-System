@@ -1131,6 +1131,10 @@ function cancelEdit(entity) {
   editing[entity] = null;
   const cfg = formConfig[entity];
   $(cfg.submitBtnId).innerHTML = cfg.addLabel;
+  // formSubmit() disables this button while a save is in flight; if we
+  // don't re-enable it here, a successful Add leaves it stuck disabled
+  // the next time the modal is opened.
+  $(cfg.submitBtnId).disabled = false;
   if (cfg.cancelBtnId) $(cfg.cancelBtnId).classList.add('hidden');
   $(cfg.formId).reset();
   clearFormDirty(cfg.formId);
@@ -1722,6 +1726,70 @@ async function confirmCourseEditImpact(editId, payload) {
   const message = `This course is already used in <strong>${affected.length}</strong> existing schedule${affected.length === 1 ? '' : 's'}. Changing units, year level, or semester will <strong>not</strong> automatically update those schedules -- you'll need to re-check them yourself afterward in the Schedules tab.`;
   return showConfirm(message, 'This Change Affects Existing Schedules', { confirmLabel: 'Update Anyway', confirmIcon: 'fa-check', danger: false });
 }
+
+/* =====================================================
+   BULK CSV IMPORT (Courses / Sections)
+   One shared modal + hidden <input type=file>, reused for both entities.
+   Parsing and validation happen server-side (api/import.php) so quoted
+   fields / embedded commas are handled correctly and the same business
+   rules as the single-record forms apply per row.
+   ===================================================== */
+
+const IMPORT_CONFIG = {
+  courses:  { title: 'Import Courses',  intro: 'Upload a CSV of courses. Required columns: course_code, course_title, year_level, semester_type. Optional: lec_units, lab_units, category.', stateKey: 'courses' },
+  sections: { title: 'Import Sections', intro: 'Upload a CSV of sections. Required columns: year_level, section_no. Optional: program_code (default BSCS), student_count (default 30).', stateKey: 'sections' },
+};
+
+let importEntity = null;
+
+function triggerCsvImport(entity) {
+  importEntity = entity;
+  const cfg = IMPORT_CONFIG[entity];
+  $('modalImportTitle').textContent = cfg.title;
+  $('importIntro').textContent = cfg.intro;
+  $('importTemplateLink').href = `${API}import.php?template=${entity}`;
+  $('importResults').classList.add('hidden');
+  $('importErrorList').innerHTML = '';
+  $('importLoading').classList.add('hidden');
+  $('importChooseFileBtn').disabled = false;
+  $('importFileInput').value = '';
+  $('modalImport').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+}
+window.triggerCsvImport = triggerCsvImport;
+
+function closeImportModal() {
+  $('modalImport').classList.add('hidden');
+  document.body.style.overflow = '';
+  importEntity = null;
+}
+window.closeImportModal = closeImportModal;
+
+$('importFileInput').addEventListener('change', async () => {
+  const file = $('importFileInput').files[0];
+  if (!file || !importEntity) return;
+  const entity = importEntity;
+
+  $('importResults').classList.add('hidden');
+  $('importLoading').classList.remove('hidden');
+  $('importChooseFileBtn').disabled = true;
+
+  try {
+    const csvText = await file.text();
+    const data = await request('import.php', { method: 'POST', body: JSON.stringify({ type: entity, csv: csvText }) });
+    showToast(data.inserted ? `Imported ${data.inserted} row${data.inserted === 1 ? '' : 's'}` : 'No rows were imported', data.inserted ? 'success' : 'warning');
+    $('importSummary').textContent = `${data.inserted} row${data.inserted === 1 ? '' : 's'} imported${data.errors.length ? `, ${data.errors.length} skipped` : ''}.`;
+    $('importErrorList').innerHTML = data.errors.map((e) => `<li>${escapeHtml(e)}</li>`).join('');
+    $('importResults').classList.remove('hidden');
+    if (data.inserted) await loadAll();
+  } catch (err) {
+    showToast(err.message, 'error');
+  } finally {
+    $('importLoading').classList.add('hidden');
+    $('importChooseFileBtn').disabled = false;
+    $('importFileInput').value = '';
+  }
+});
 
 formSubmit('courseForm', () => ({ course_code: $('courseCode').value, course_title: $('courseTitle').value, year_level: $('courseYear').value, semester_type: $('courseSemester').value, lec_units: $('lecUnits').value, lab_units: $('labUnits').value, category: $('category').value }), 'courses.php', 'courses', null, confirmCourseEditImpact);
 formSubmit('sectionForm', () => ({ year_level: $('sectionYear').value, section_no: $('sectionNo').value, student_count: $('studentCount').value }), 'sections.php', 'sections');
