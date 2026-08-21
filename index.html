@@ -56,6 +56,24 @@
     </div>
   </div>
 
+  <!-- Instructor Conflict Dialog (Lecture/Laboratory must share one instructor) -->
+  <div id="modalInstructorConflict" class="modal-overlay hidden">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h3><i class="fas fa-user-lock"></i> Instructor Conflict</h3>
+        <button class="modal-close" type="button" onclick="closeInstructorConflictModal()" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
+      </div>
+      <div class="confirm-body">
+        <i class="fas fa-circle-exclamation"></i>
+        <p id="instructorConflictMessage">Are you sure?</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" type="button" onclick="closeInstructorConflictModal()">Cancel</button>
+        <button id="instructorConflictViewBtn" class="btn btn-primary" type="button"><i class="fas fa-eye"></i> View Existing Schedule</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Main App Shell -->
   <div id="appShell" class="hidden">
 
@@ -303,6 +321,7 @@
               <label for="scheduleFaculty">
                 <i class="fas fa-chalkboard-user"></i> Faculty
                 <span class="required">*</span>
+                <span id="facultyLockBadge" class="lock-badge hidden"><i class="fas fa-lock"></i> Inherited</span>
               </label>
               <select id="scheduleFaculty" required title="Select a course first" disabled>
                 <option value="">Select course first</option>

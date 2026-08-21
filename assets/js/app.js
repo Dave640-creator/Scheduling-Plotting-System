@@ -57,7 +57,12 @@ async function request(endpoint, options = {}) {
   const json = await res.json();
   if (json.data && json.data.csrf_token) csrfToken = json.data.csrf_token;
   if (res.status === 401) showLogin();
-  if (!json.success) throw new Error(json.message || 'Request failed');
+  if (!json.success) {
+    const err = new Error(json.message || 'Request failed');
+    err.data = json.data;
+    err.status = res.status;
+    throw err;
+  }
   return json.data;
 }
 
@@ -129,6 +134,60 @@ function closeConfirm(result) {
   if (confirmResolver) { confirmResolver(result); confirmResolver = null; }
 }
 window.closeConfirm = closeConfirm;
+
+/* =====================================================
+   INSTRUCTOR CONFLICT MODAL
+   Shown instead of a generic error toast when the backend rejects a
+   schedule because Lecture/Laboratory of the same course+section already
+   has a different instructor. Never silently drops or deletes the
+   existing schedule -- just warns, and offers a way to go look at it.
+   ===================================================== */
+
+function showInstructorConflictModal(message, existingScheduleId) {
+  $('instructorConflictMessage').innerHTML = escapeHtml(message);
+  const viewBtn = $('instructorConflictViewBtn');
+  viewBtn.onclick = () => viewExistingSchedule(existingScheduleId);
+  $('modalInstructorConflict').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeInstructorConflictModal() {
+  $('modalInstructorConflict').classList.add('hidden');
+  document.body.style.overflow = '';
+}
+window.closeInstructorConflictModal = closeInstructorConflictModal;
+
+/**
+ * Jumps to the Schedules tab, filtered to the conflicting section, and
+ * briefly highlights the existing schedule row so the head can see exactly
+ * what it's already assigned to before deciding what to do.
+ */
+function viewExistingSchedule(scheduleId) {
+  closeInstructorConflictModal();
+  const sched = state.schedules.find((s) => Number(s.id) === Number(scheduleId));
+  scheduleFilters.schoolYear = '';
+  scheduleFilters.year = '';
+  scheduleFilters.semester = '';
+  scheduleFilters.faculty = '';
+  scheduleFilters.section = sched ? String(sched.section_id) : '';
+  $('filterSchoolYear').value = '';
+  $('filterYear').value = '';
+  $('filterSemester').value = '';
+  $('filterFaculty').value = '';
+  $('filterSection').value = scheduleFilters.section;
+  activateView('schedules');
+  const qs = currentFiltersQueryString();
+  history.replaceState(null, '', qs ? `#schedules?${qs}` : '#schedules');
+  getTableState('schedulesTable').page = 1;
+  renderTables();
+  const row = document.querySelector(`#schedulesTable tr[data-row-id="${scheduleId}"]`);
+  if (row) {
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.classList.add('row-highlight-flash');
+    setTimeout(() => row.classList.remove('row-highlight-flash'), 2500);
+  }
+}
+window.viewExistingSchedule = viewExistingSchedule;
 
 /* =====================================================
    UNSAVED-CHANGES PROTECTION
@@ -283,7 +342,7 @@ function renderDataTable(tableId, columns, data, opts = {}) {
     const message = isSearching ? `No results match "${st.search}".` : (opts.emptyMessage || 'No records found.');
     tbodyHtml = `<tr><td colspan="${columns.length + 1}"><div class="table-empty-state"><i class="fas ${icon}"></i><p>${escapeHtml(message)}</p></div></td></tr>`;
   } else {
-    tbodyHtml = pageRows.map((row) => '<tr>' + columns.map((c) => `<td>${c.render ? c.render(row) : escapeHtml(row[c.key] ?? '')}</td>`).join('') + `<td><div class="table-actions">${opts.rowActions(row)}</div></td></tr>`).join('');
+    tbodyHtml = pageRows.map((row) => `<tr data-row-id="${escapeHtml(String(row.id ?? ''))}">` + columns.map((c) => `<td>${c.render ? c.render(row) : escapeHtml(row[c.key] ?? '')}</td>`).join('') + `<td><div class="table-actions">${opts.rowActions(row)}</div></td></tr>`).join('');
   }
 
   $(tableId).innerHTML = `<thead>${theadHtml}</thead><tbody>${tbodyHtml}</tbody>`;
@@ -637,6 +696,30 @@ function updateComponentOptions() {
   }
 }
 
+/**
+ * Finds the OTHER component's schedule (Lecture <-> Laboratory) already
+ * plotted for the same course+section+school year, if any -- regardless of
+ * whether Lecture or Laboratory was plotted first. Excludes the row
+ * currently being edited so editing a schedule doesn't "conflict with
+ * itself". Mirrors the sibling lookup in api/schedules.php.
+ */
+function getSiblingScheduleForCourseSection(courseId, sectionId, schoolYear, ignoreId) {
+  if (!courseId || !sectionId || !schoolYear) return null;
+  return state.schedules.find((s) =>
+    Number(s.course_id) === Number(courseId) &&
+    Number(s.section_id) === Number(sectionId) &&
+    s.school_year === schoolYear &&
+    (!ignoreId || Number(s.id) !== Number(ignoreId))
+  ) || null;
+}
+
+function toggleFacultyLockBadge(show) {
+  const badge = $('facultyLockBadge');
+  if (badge) badge.classList.toggle('hidden', !show);
+  const select = $('scheduleFaculty');
+  if (select) select.classList.toggle('faculty-locked', !!show);
+}
+
 function updateFacultyOptions() {
   const course = getSelectedCourse();
   const hint = $('facultyHint');
@@ -645,6 +728,7 @@ function updateFacultyOptions() {
     $('scheduleFaculty').disabled = true;
     $('scheduleFaculty').title = 'Select a course first.';
     if (hint) hint.textContent = '🔒 Select a course first to choose an eligible faculty.';
+    toggleFacultyLockBadge(false);
     return;
   }
 
@@ -654,12 +738,36 @@ function updateFacultyOptions() {
     $('scheduleFaculty').disabled = true;
     $('scheduleFaculty').title = 'Assign a faculty member to this course first (Faculty Course Assignments).';
     if (hint) hint.textContent = '⚠ No faculty assigned to this course yet -- add one in Faculty Course Assignments first.';
+    toggleFacultyLockBadge(false);
+    return;
+  }
+
+  // Auto-inherit the instructor from the course's other component (Lecture
+  // or Laboratory) already plotted for this exact section + school year, so
+  // the head never has to pick the same person twice and can't accidentally
+  // assign the second component to someone else.
+  const sectionId = $('scheduleSection').value;
+  const schoolYear = $('scheduleSchoolYear').value;
+  const sibling = getSiblingScheduleForCourseSection(course.id, sectionId, schoolYear, editing.schedules);
+  const inheritedFacultyId = sibling ? Number(sibling.faculty_id) : null;
+  const inheritedIsQualified = inheritedFacultyId && qualifiedFaculty.some((f) => Number(f.id) === inheritedFacultyId);
+
+  if (sibling && inheritedIsQualified) {
+    fillSelect('scheduleFaculty', qualifiedFaculty, (f) => f.faculty_name + (Number(f.is_active) === 0 ? ' (Inactive)' : ''), 'id', 'Select assigned faculty');
+    $('scheduleFaculty').value = String(inheritedFacultyId);
+    $('scheduleFaculty').disabled = true;
+    $('scheduleFaculty').title = `Instructor inherited from the existing ${course.course_code} schedule for this section -- Lecture and Laboratory must share the same instructor.`;
+    const section = state.sections.find((s) => Number(s.id) === Number(sectionId));
+    const sectionLabel = section ? `${section.program_code} ${section.year_level}-${section.section_no}` : 'this section';
+    if (hint) hint.innerHTML = `🔒 Instructor inherited from existing <strong>${escapeHtml(course.course_code)}</strong> schedule for <strong>${escapeHtml(sectionLabel)}</strong> (${escapeHtml(sibling.component)}).`;
+    toggleFacultyLockBadge(true);
     return;
   }
 
   fillSelect('scheduleFaculty', qualifiedFaculty, (f) => f.faculty_name + (Number(f.is_active) === 0 ? ' (Inactive)' : ''), 'id', 'Select assigned faculty');
   $('scheduleFaculty').disabled = false;
   $('scheduleFaculty').title = '';
+  toggleFacultyLockBadge(false);
   if (hint) hint.textContent = `✓ ${qualifiedFaculty.length} eligible faculty member${qualifiedFaculty.length === 1 ? '' : 's'} found.`;
 }
 
@@ -1240,12 +1348,12 @@ function editSchedule(id) {
   $('scheduleSchoolYear').value = s.school_year;
   $('scheduleCourse').value = s.course_id;
   updateComponentOptions();
-  updateFacultyOptions();
   $('scheduleComponent').value = s.component;
   updateRoomOptions();
   updateSectionOptions();
   $('scheduleSection').value = s.section_id;
-  $('scheduleFaculty').value = s.faculty_id;
+  updateFacultyOptions(); // course + section + school year are all set now, so the inherited-faculty lock (if any) resolves against the correct sibling schedule
+  if (!$('scheduleFaculty').disabled) $('scheduleFaculty').value = s.faculty_id;
   $('scheduleRoom').value = s.room_id || '';
   $('setType').value = s.set_type;
   updateRoomRequirement();
@@ -1365,6 +1473,7 @@ document.querySelectorAll('.modal-overlay').forEach((overlay) => {
   overlay.addEventListener('click', (e) => {
     if (e.target !== overlay) return;
     if (overlay.id === 'confirmOverlay') { closeConfirm(false); return; }
+    if (overlay.id === 'modalInstructorConflict') { closeInstructorConflictModal(); return; }
     const entity = Object.keys(formConfig).find((k) => formConfig[k].modalId === overlay.id);
     if (entity) requestCloseEntityModal(entity);
   });
@@ -1373,6 +1482,7 @@ document.querySelectorAll('.modal-overlay').forEach((overlay) => {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (!$('confirmOverlay').classList.contains('hidden')) { closeConfirm(false); return; }
+  if (!$('modalInstructorConflict').classList.contains('hidden')) { closeInstructorConflictModal(); return; }
   Object.keys(formConfig).forEach((entity) => {
     const cfg = formConfig[entity];
     if (cfg.modalId && !$(cfg.modalId).classList.contains('hidden')) requestCloseEntityModal(entity);
@@ -1699,7 +1809,11 @@ function formSubmit(id, build, endpoint, entity, onSuccess, preSubmitCheck) {
       // cancelEdit()/closeEntityModal() already restore the button's label and
       // (for the schedule form) its conflict-aware disabled state on success.
     } catch (err) {
-      showToast(err.message, 'error');
+      if (err.data && err.data.conflict_type === 'instructor_mismatch') {
+        showInstructorConflictModal(err.message, err.data.existing_schedule_id);
+      } else {
+        showToast(err.message, 'error');
+      }
       if (submitBtn) {
         submitBtn.disabled = false;
         submitBtn.innerHTML = originalLabel;
@@ -1810,6 +1924,9 @@ $('scheduleComponent').addEventListener('change', () => {
   updateRoomOptions();
   checkLiveConflict();
 });
+
+$('scheduleSection').addEventListener('change', updateFacultyOptions);
+$('scheduleSchoolYear').addEventListener('change', updateFacultyOptions);
 
 $('scheduleDuration').addEventListener('change', () => {
   updateEndTimeFromDuration();

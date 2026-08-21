@@ -867,6 +867,43 @@ select:focus-visible,
   margin-top: -2px;
 }
 
+/* Faculty field lock badge + locked state: distinct from the generic
+   "disabled because a prior field isn't picked yet" gray look, so it reads
+   as "this is set on purpose", not "you're missing a step". */
+.lock-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--warning);
+  background: rgba(243, 156, 18, 0.12);
+  border: 1px solid rgba(243, 156, 18, 0.35);
+  border-radius: var(--radius-sm);
+  padding: 1px 8px;
+  margin-left: var(--spacing-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+select.faculty-locked:disabled {
+  background-color: rgba(243, 156, 18, 0.08);
+  border-color: rgba(243, 156, 18, 0.45);
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+/* Momentary highlight on the schedules table row a conflict/"View Existing
+   Schedule" link jumps to. */
+@keyframes rowHighlightFlash {
+  0%, 100% { background-color: transparent; }
+  20%, 70% { background-color: rgba(243, 156, 18, 0.22); }
+}
+
+.row-highlight-flash {
+  animation: rowHighlightFlash 2.4s ease-in-out;
+}
+
 input,
 select {
   padding: var(--spacing-md) var(--spacing-lg);

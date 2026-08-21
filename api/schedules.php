@@ -132,6 +132,38 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
         json_response(false, 'Faculty is not assigned/allowed to teach this course. Assign the course to the faculty first in Faculty Courses.', null, 422);
     }
 
+    // Instructor consistency: a course's Lecture and Laboratory components,
+    // for the same section and school year, are the same class split across
+    // two meeting types -- they must be taught by the same instructor. This
+    // is checked regardless of whether Lecture or Laboratory was plotted
+    // first. The frontend already inherits/locks the faculty field to
+    // prevent this in the normal flow; this is the authoritative backend
+    // check (and the fallback for stale UI state / direct API calls).
+    $siblingSql = 'SELECT s.id, s.faculty_id, s.component, f.faculty_name
+                   FROM schedules s JOIN faculty f ON f.id = s.faculty_id
+                   WHERE s.course_id=? AND s.section_id=? AND s.school_year=?';
+    $siblingParams = [(int)$d['course_id'], (int)$d['section_id'], $d['school_year']];
+    if ($ignoreId) { $siblingSql .= ' AND s.id<>?'; $siblingParams[] = $ignoreId; }
+    $siblingStmt = $pdo->prepare($siblingSql);
+    $siblingStmt->execute($siblingParams);
+    $siblingSchedule = $siblingStmt->fetch();
+
+    if ($siblingSchedule && (int)$siblingSchedule['faculty_id'] !== (int)$d['faculty_id']) {
+        json_response(
+            false,
+            $course['course_code'] . ' for ' . $section['program_code'] . ' ' . $section['year_level'] . '-' . $section['section_no'] . ' is already assigned to ' . $siblingSchedule['faculty_name'] . '. Lecture and Laboratory must use the same instructor.',
+            [
+                'conflict_type' => 'instructor_mismatch',
+                'existing_schedule_id' => (int)$siblingSchedule['id'],
+                'existing_faculty_id' => (int)$siblingSchedule['faculty_id'],
+                'existing_faculty_name' => $siblingSchedule['faculty_name'],
+                'existing_component' => $siblingSchedule['component'],
+                'course_code' => $course['course_code'],
+            ],
+            409
+        );
+    }
+
     $existingSchedule = null;
     if ($ignoreId) {
         $existingScheduleStmt = $pdo->prepare('SELECT faculty_id, room_id FROM schedules WHERE id=?');
