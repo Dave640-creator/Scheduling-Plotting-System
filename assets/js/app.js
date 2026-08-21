@@ -68,8 +68,27 @@ async function request(endpoint, options = {}) {
 function showToast(message, type = 'success') {
   const icons = { success: 'fa-circle-check', error: 'fa-circle-exclamation', warning: 'fa-triangle-exclamation', info: 'fa-circle-info' };
   const container = $('toastContainer');
+
+  // Prevent the same message/type from stacking multiple times in a row --
+  // e.g. clicking "Update Faculty" repeatedly while a real server error
+  // keeps happening used to pile up one identical toast per click.
+  const existing = Array.from(container.querySelectorAll('.toast')).find(
+    (t) => t.dataset.toastKey === `${type}:${message}`
+  );
+  if (existing) {
+    existing.classList.remove('toast-hide');
+    clearTimeout(Number(existing.dataset.toastTimer));
+    const timer = setTimeout(() => {
+      existing.classList.add('toast-hide');
+      setTimeout(() => existing.remove(), 200);
+    }, 4500);
+    existing.dataset.toastTimer = String(timer);
+    return;
+  }
+
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
+  toast.dataset.toastKey = `${type}:${message}`;
   toast.innerHTML = `<i class="fas ${icons[type] || icons.info} toast-icon"></i><div class="toast-msg">${escapeHtml(message)}</div><button class="toast-close" type="button" aria-label="Dismiss"><i class="fas fa-xmark"></i></button>`;
   const remove = () => {
     toast.classList.add('toast-hide');
@@ -77,7 +96,8 @@ function showToast(message, type = 'success') {
   };
   toast.querySelector('.toast-close').addEventListener('click', remove);
   container.appendChild(toast);
-  setTimeout(remove, 4500);
+  const timer = setTimeout(remove, 4500);
+  toast.dataset.toastTimer = String(timer);
 }
 
 /* Kept for internal fallback use; toasts are the primary feedback mechanism now. */
@@ -336,11 +356,11 @@ function getQualifiedFacultyForCourse(courseId) {
 function renderSelects() {
   fillCourseSelectGrouped('scheduleCourse', state.courses);
   fillCourseSelectGrouped('assignCourse', state.courses);
-  fillSelect('scheduleSection', state.sections, (s) => `${s.program_code} ${s.year_level} - Section ${s.section_no} (${s.student_count})`);
   fillSelect('assignFaculty', state.faculty, (f) => f.faculty_name);
   updateComponentOptions();
   updateFacultyOptions();
   updateRoomOptions();
+  updateSectionOptions();
 }
 
 function renderFilterOptions() {
@@ -540,6 +560,40 @@ function updateRoomRequirement() {
   $('scheduleRoom').required = isSet0;
 }
 
+function updateSectionOptions() {
+  const course = getSelectedCourse();
+  const sectionSelect = $('scheduleSection');
+  const editingSectionId = editing.schedules ? Number((state.schedules.find((s) => Number(s.id) === Number(editing.schedules)) || {}).section_id) : null;
+
+  if (!course) {
+    fillSelect('scheduleSection', state.sections, (s) => `${s.program_code} ${s.year_level} - Section ${s.section_no} (${s.student_count})`);
+    sectionSelect.disabled = false;
+    sectionSelect.title = '';
+    return;
+  }
+
+  // Only list sections that actually match the course's year level -- this
+  // is the same "Year level mismatch" rule the backend/live-conflict check
+  // already enforces, just applied earlier so the mismatch can't be picked
+  // in the first place instead of surfacing as an error after the fact.
+  // The section being edited stays selectable even if it no longer matches,
+  // so an existing (already-saved) schedule doesn't silently disappear.
+  const matchingSections = state.sections.filter(
+    (s) => Number(s.year_level) === Number(course.year_level) || Number(s.id) === editingSectionId
+  );
+
+  if (!matchingSections.length) {
+    sectionSelect.innerHTML = `<option value="">No Year ${course.year_level} sections available</option>`;
+    sectionSelect.disabled = true;
+    sectionSelect.title = `"${course.course_code}" is a Year ${course.year_level} course, but no Year ${course.year_level} sections exist yet.`;
+    return;
+  }
+
+  fillSelect('scheduleSection', matchingSections, (s) => `${s.program_code} ${s.year_level} - Section ${s.section_no} (${s.student_count})`);
+  sectionSelect.disabled = false;
+  sectionSelect.title = '';
+}
+
 /* =====================================================
    LIVE CONFLICT PREVIEW (Plot Schedule form)
    Mirrors the backend's exact day-pattern overlap rule
@@ -706,19 +760,30 @@ function findScheduleConflicts(dayPattern, start, end, { sectionId, facultyId, r
   return conflicts;
 }
 
-function suggestAlternativeTimes(dayPattern, durationMin, ctx, maxSuggestions = 2) {
+function suggestAlternativeTimes(dayPattern, durationMin, ctx, maxSuggestions = 2, requestedStart = null) {
   if (!dayPattern || !durationMin) return [];
-  const suggestions = [];
+
+  // Build every open time slot in the day, then rank them by how close they
+  // are to the time the user originally wanted -- scanning outward in BOTH
+  // directions (earlier AND later) instead of only sweeping forward from
+  // 7:00 AM. The old forward-only sweep stopped as soon as it found 2 free
+  // slots, so if those happened to fall before the conflict it would never
+  // even look at slots after it -- even when "after" was completely vacant.
+  const requestedMins = requestedStart ? timeStrToMinutes(requestedStart) : 7 * 60;
+  const candidates = [];
   for (let mins = 7 * 60; mins + durationMin <= 19 * 60; mins += 30) {
     const startStr = minutesToTimeStr(mins);
     const endStr = minutesToTimeStr(mins + durationMin);
     const conflicts = findScheduleConflicts(dayPattern, startStr, endStr, ctx);
     if (!conflicts.length) {
-      suggestions.push({ start: startStr, end: endStr });
-      if (suggestions.length >= maxSuggestions) break;
+      candidates.push({ start: startStr, end: endStr, mins, distance: Math.abs(mins - requestedMins) });
     }
   }
-  return suggestions;
+
+  candidates.sort((a, b) => a.distance - b.distance || a.mins - b.mins);
+  const picked = candidates.slice(0, maxSuggestions);
+  picked.sort((a, b) => a.mins - b.mins); // show left-to-right in chronological order
+  return picked.map(({ start, end }) => ({ start, end }));
 }
 
 function renderConflictPreview(conflicts, suggestions) {
@@ -775,7 +840,7 @@ function checkLiveConflict() {
   }
 
   const conflicts = findScheduleConflicts(dayPattern, start, end, ctx);
-  const suggestions = conflicts.length ? suggestAlternativeTimes(dayPattern, getDurationMinutes(), ctx) : [];
+  const suggestions = conflicts.length ? suggestAlternativeTimes(dayPattern, getDurationMinutes(), ctx, 2, start) : [];
   renderConflictPreview(conflicts, suggestions);
 }
 
@@ -1037,12 +1102,14 @@ function setDayPatternUI(dayOfWeek) {
 function editSchedule(id) {
   const s = state.schedules.find((x) => Number(x.id) === id);
   if (!s) return;
+  editing.schedules = id; // set before updateSectionOptions() so it keeps this schedule's section selectable even if it no longer matches the course's year level
   $('scheduleSchoolYear').value = s.school_year;
   $('scheduleCourse').value = s.course_id;
   updateComponentOptions();
   updateFacultyOptions();
   $('scheduleComponent').value = s.component;
   updateRoomOptions();
+  updateSectionOptions();
   $('scheduleSection').value = s.section_id;
   $('scheduleFaculty').value = s.faculty_id;
   $('scheduleRoom').value = s.room_id || '';
@@ -1223,10 +1290,14 @@ function validateField(id, opts = {}) {
       icon.innerHTML = state === 'valid' ? ICON_VALID : state === 'invalid' ? ICON_INVALID : '';
     }
     if (hint) {
-      hint.style.display = state === 'neutral' ? 'none' : 'block';
+      // Only show the hint text for errors. A "Looks good!" message under
+      // every filled field reads as noisy/unprofessional -- the green
+      // checkmark icon already communicates success on its own.
+      const showHint = state === 'invalid';
+      hint.style.display = showHint ? 'block' : 'none';
       hint.classList.toggle('valid-text', state === 'valid');
       hint.classList.toggle('invalid-text', state === 'invalid');
-      if (message) hint.textContent = message;
+      if (showHint && message) hint.textContent = message;
     }
   };
 
@@ -1451,6 +1522,7 @@ $('scheduleCourse').addEventListener('change', () => {
   updateComponentOptions();
   updateFacultyOptions();
   updateRoomOptions();
+  updateSectionOptions();
   checkLiveConflict();
 });
 
