@@ -88,6 +88,10 @@
         <i class="fas fa-list-check"></i>
         <span>Schedules</span>
       </button>
+      <button class="nav-item" data-view="timetables">
+        <i class="fas fa-table-cells"></i>
+        <span>Timetables</span>
+      </button>
 
       <div class="nav-group-label">Management</div>
       <button class="nav-item" data-view="courses">
@@ -450,6 +454,60 @@
           <table id="schedulesTable"></table>
         </div>
         <div class="pagination-bar" id="schedulesTablePagination"></div>
+      </div>
+    </section>
+
+    <!-- Timetables View -->
+    <section id="timetables" class="view">
+      <div class="section-header">
+        <div class="section-header-text">
+          <h2><i class="fas fa-table-cells"></i> Timetables</h2>
+          <p>Printable weekly schedule by section or by faculty</p>
+        </div>
+        <button class="print-btn" onclick="window.print()" title="Print this timetable">
+          <i class="fas fa-print"></i> <span>Print</span>
+        </button>
+      </div>
+
+      <div class="card timetable-controls">
+        <div class="timetable-tabs">
+          <button class="timetable-tab active" data-tt-mode="section" type="button">
+            <i class="fas fa-layer-group"></i> By Section
+          </button>
+          <button class="timetable-tab" data-tt-mode="faculty" type="button">
+            <i class="fas fa-chalkboard-user"></i> By Faculty
+          </button>
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="ttSchoolYear"><i class="fas fa-calendar-week"></i> School Year</label>
+            <select id="ttSchoolYear"></select>
+          </div>
+          <div class="form-group" id="ttSectionGroup">
+            <label for="ttSection"><i class="fas fa-layer-group"></i> Section</label>
+            <select id="ttSection"></select>
+          </div>
+          <div class="form-group hidden" id="ttFacultyGroup">
+            <label for="ttFaculty"><i class="fas fa-chalkboard-user"></i> Faculty</label>
+            <select id="ttFaculty"></select>
+          </div>
+        </div>
+      </div>
+
+      <div class="card hidden" id="ttSummaryCard">
+        <div class="card-header">
+          <div class="card-header-text">
+            <h3><i class="fas fa-chart-simple"></i> Load Summary</h3>
+          </div>
+        </div>
+        <div class="stats-grid tt-summary-grid" id="ttSummary"></div>
+      </div>
+
+      <div class="card">
+        <div id="ttHeading" class="timetable-heading"></div>
+        <div class="timetable-wrap">
+          <div id="ttGrid" class="timetable-grid"></div>
+        </div>
       </div>
     </section>
 

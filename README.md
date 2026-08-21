@@ -154,13 +154,20 @@ Walked through the system as a first-time user end-to-end (login through logout)
 - **Section's 30-student cap is now shown before you hit the limit**, not just as an error message after.
 - **Login screen now hints at the default account** (`institute_head`) for first-time setup, without printing the actual password on screen -- it points to this README instead, since showing a password on a login page is bad practice even for a local single-admin system.
 
+## Printable Timetables (2026-08-12)
+New "Timetables" view (sidebar, under Operations) generates a proper printable weekly schedule instead of just a flat list:
+- **By Section** -- pick a school year + section, see a Mon-Sun time grid of everything that section is taking, with faculty/room shown on each block.
+- **By Faculty** -- pick a school year + faculty, see their weekly teaching grid plus a load summary (Preparations, Total Units, Class Meetings).
+- Grid rows auto-scale to whatever time range the selected schedules actually span (not a fixed clock range), so nothing gets clipped.
+- Print button here produces a clean grid without the sidebar/buttons -- same as the Schedules list's print button.
+- Fixed a real print bug found while building this: `window.print()` previously rendered *every* view stacked on top of each other on the printed page, not just the one you were looking at.
+
 ## Known Remaining Gaps (not yet implemented)
 - Editing a course's units/year-level/semester after schedules already exist for it is not retroactively re-validated against the DB rules -- the app only shows a toast telling you how many schedules to go re-check manually in the Schedules tab
-- No visual weekly time-grid view for schedules (list view only, though it now has search/sort/pagination)
-- No faculty/section load summary (total units, prep count at a glance)
 - No bulk CSV import for courses, no "clone previous semester" shortcut
 - No faculty-side login (view-only access to their own load)
 - No export to Excel/CSV
 - No total-teaching-hours/overload check across a faculty's full schedule (only the "max preparations" count is enforced, and it's now per-term rather than lifetime)
 - No per-day/per-time instructor availability/blackout preferences (the Active/Unavailable toggle is all-or-nothing, not day-specific)
+- Timetable grid doesn't yet handle two SET_1/SET_2-alternating schedules that legitimately overlap the same time slot (they'll visually stack in the same cell rather than showing side-by-side)
 - Out of scope by design: individual student-level scheduling (transferees, irregular/deloaded students). This system plots block schedules per section; matching individual students to slots belongs in a separate enrollment/registration system.

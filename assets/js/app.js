@@ -240,6 +240,8 @@ async function loadAll() {
   renderTables();
   renderSelects();
   renderFilterOptions();
+  renderTimetableSelectors();
+  renderTimetable();
 }
 
 function iconForStatKey(key) {
@@ -341,6 +343,128 @@ function renderFilterOptions() {
   $('filterFaculty').value = prevFaculty;
   $('filterSchoolYear').value = prevSchoolYear;
 }
+
+/* =====================================================
+   TIMETABLES (printable per-section / per-faculty grid)
+   ===================================================== */
+
+let ttMode = 'section';
+const TT_DAY_COLUMNS = { Monday: 2, Tuesday: 3, Wednesday: 4, Thursday: 5, Friday: 6, Saturday: 7, Sunday: 8 };
+const TT_DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+function renderTimetableSelectors() {
+  const prevSY = $('ttSchoolYear').value;
+  const prevSec = $('ttSection').value;
+  const prevFac = $('ttFaculty').value;
+  const schoolYears = [...new Set(state.schedules.map((s) => s.school_year))].sort().reverse();
+  const fallbackYear = suggestedSchoolYear();
+  $('ttSchoolYear').innerHTML = (schoolYears.length ? schoolYears : [fallbackYear]).map((sy) => `<option value="${escapeHtml(sy)}">${escapeHtml(sy)}</option>`).join('');
+  if (schoolYears.includes(prevSY)) $('ttSchoolYear').value = prevSY;
+
+  fillSelect('ttSection', state.sections, (s) => `${s.program_code} ${s.year_level} - Section ${s.section_no}`, 'id', 'Select a section');
+  fillSelect('ttFaculty', state.faculty, (f) => f.faculty_name, 'id', 'Select a faculty');
+  if (prevSec) $('ttSection').value = prevSec;
+  if (prevFac) $('ttFaculty').value = prevFac;
+}
+
+function renderTimetable() {
+  const schoolYear = $('ttSchoolYear').value;
+  let filtered = state.schedules.filter((s) => s.school_year === schoolYear);
+  let heading = '';
+
+  if (ttMode === 'section') {
+    const sectionId = $('ttSection').value;
+    filtered = sectionId ? filtered.filter((s) => String(s.section_id) === sectionId) : [];
+    const sec = state.sections.find((s) => String(s.id) === sectionId);
+    heading = sec ? `${escapeHtml(sec.program_code)} ${sec.year_level} - Section ${escapeHtml(sec.section_no)} &nbsp;|&nbsp; SY ${escapeHtml(schoolYear)}` : 'Select a section above to view its timetable.';
+    $('ttSummaryCard').classList.add('hidden');
+  } else {
+    const facultyId = $('ttFaculty').value;
+    filtered = facultyId ? filtered.filter((s) => String(s.faculty_id) === facultyId) : [];
+    const fac = state.faculty.find((f) => String(f.id) === facultyId);
+    heading = fac ? `${escapeHtml(fac.faculty_name)} &nbsp;|&nbsp; SY ${escapeHtml(schoolYear)}` : 'Select a faculty above to view their load.';
+    if (fac) {
+      const uniqueCourseIds = [...new Set(filtered.map((s) => s.course_id))];
+      const totalUnits = uniqueCourseIds.reduce((sum, cid) => {
+        const c = state.courses.find((cc) => Number(cc.id) === Number(cid));
+        return sum + (c ? Number(c.lec_units) + Number(c.lab_units) : 0);
+      }, 0);
+      $('ttSummary').innerHTML = `
+        <div class="card stat-card"><div class="stat-icon"><i class="fas fa-book"></i></div><div><div class="num">${uniqueCourseIds.length}</div><div class="label">Preparations</div></div></div>
+        <div class="card stat-card"><div class="stat-icon"><i class="fas fa-graduation-cap"></i></div><div><div class="num">${totalUnits}</div><div class="label">Total Units</div></div></div>
+        <div class="card stat-card"><div class="stat-icon"><i class="fas fa-calendar-check"></i></div><div><div class="num">${filtered.length}</div><div class="label">Class Meetings</div></div></div>`;
+      $('ttSummaryCard').classList.remove('hidden');
+    } else {
+      $('ttSummaryCard').classList.add('hidden');
+    }
+  }
+
+  $('ttHeading').innerHTML = heading;
+
+  const selectionMade = ttMode === 'section' ? !!$('ttSection').value : !!$('ttFaculty').value;
+  if (!filtered.length) {
+    $('ttGrid').style.display = 'block';
+    $('ttGrid').innerHTML = `<div class="table-empty-state"><i class="fas fa-calendar-xmark"></i><p>${selectionMade ? 'No schedules found for this selection.' : 'Make a selection above to view the timetable.'}</p></div>`;
+    return;
+  }
+
+  let minStart = Math.min(...filtered.map((s) => timeStrToMinutes(s.start_time.slice(0, 5))), 7 * 60);
+  let maxEnd = Math.max(...filtered.map((s) => timeStrToMinutes(s.end_time.slice(0, 5))), 19 * 60);
+  minStart = Math.floor(minStart / 60) * 60;
+  maxEnd = Math.ceil(maxEnd / 60) * 60;
+  const totalSlots = (maxEnd - minStart) / 30;
+
+  $('ttGrid').style.display = 'grid';
+  $('ttGrid').style.gridTemplateColumns = '70px repeat(7, 1fr)';
+  $('ttGrid').style.gridTemplateRows = `36px repeat(${totalSlots}, 22px)`;
+
+  let html = '<div class="tt-corner">Time</div>';
+  TT_DAY_ORDER.forEach((d) => { html += `<div class="tt-day-header">${d.slice(0, 3)}</div>`; });
+
+  for (let i = 0; i < totalSlots; i++) {
+    const mins = minStart + i * 30;
+    const isHour = mins % 60 === 0;
+    html += `<div class="tt-time-label" style="grid-row:${i + 2};grid-column:1;">${isHour ? escapeHtml(formatTimeLabel(mins)) : ''}</div>`;
+    for (let d = 0; d < 7; d++) {
+      html += `<div class="tt-cell-bg" style="grid-row:${i + 2};grid-column:${d + 2};"></div>`;
+    }
+  }
+
+  filtered.forEach((s) => {
+    const days = scheduleDaysFor(s.day_of_week);
+    const startMin = timeStrToMinutes(s.start_time.slice(0, 5));
+    const endMin = timeStrToMinutes(s.end_time.slice(0, 5));
+    const startRow = 2 + Math.max(0, Math.floor((startMin - minStart) / 30));
+    const endRow = 2 + Math.min(totalSlots, Math.ceil((endMin - minStart) / 30));
+    days.forEach((d) => {
+      const col = TT_DAY_COLUMNS[d];
+      if (!col) return; // skip unrecognized/legacy literal 'Custom' data
+      const subLabel = ttMode === 'section' ? s.faculty_name : `${s.program_code} ${s.year_level}-${s.section_no}`;
+      html += `<div class="tt-block ${s.component === 'laboratory' ? 'lab' : ''}" style="grid-row:${startRow} / ${endRow};grid-column:${col};" title="${escapeHtml(s.course_code)} - ${escapeHtml(s.course_title)}">
+        <div class="tt-block-title">${escapeHtml(s.course_code)}</div>
+        <div class="tt-block-sub">${escapeHtml(subLabel)}</div>
+        <div class="tt-block-sub">${escapeHtml(s.room_name || 'Online')}</div>
+      </div>`;
+    });
+  });
+
+  $('ttGrid').innerHTML = html;
+}
+
+document.querySelectorAll('.timetable-tab').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.timetable-tab').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    ttMode = btn.dataset.ttMode;
+    $('ttSectionGroup').classList.toggle('hidden', ttMode !== 'section');
+    $('ttFacultyGroup').classList.toggle('hidden', ttMode !== 'faculty');
+    renderTimetable();
+  });
+});
+
+['ttSchoolYear', 'ttSection', 'ttFaculty'].forEach((id) => {
+  $(id).addEventListener('change', renderTimetable);
+});
 
 function updateComponentOptions() {
   const course = getSelectedCourse();

@@ -9,7 +9,7 @@
 // 3306), you must keep DB_HOST as '127.0.0.1' or the port change won't
 // actually take effect and you'll get a confusing connection error.
 const DB_HOST = '127.0.0.1';
-const DB_PORT = '3307'; // Chang    e this if your XAMPP MySQL runs on a different port (e.g. 3307)
+const DB_PORT = '3307'; // Change this if your XAMPP MySQL runs on a different port (e.g. 3307)
 const DB_NAME = 'ics_plotting_system';
 const DB_USER = 'root';
 const DB_PASS = '';
