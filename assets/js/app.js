@@ -545,11 +545,13 @@ document.querySelectorAll('.timetable-tab').forEach((btn) => {
 function updateComponentOptions() {
   const course = getSelectedCourse();
   const componentSelect = $('scheduleComponent');
+  const hint = $('componentHint');
 
   if (!course) {
     componentSelect.innerHTML = '<option value="">Select course first</option>';
     componentSelect.disabled = true;
     componentSelect.title = 'Select a course first.';
+    if (hint) hint.textContent = '🔒 Select a course first to see its lecture/laboratory components.';
     return;
   }
 
@@ -562,14 +564,21 @@ function updateComponentOptions() {
     : '<option value="">No plottable component</option>';
   componentSelect.disabled = !options.length;
   componentSelect.title = options.length ? '' : 'This course has no lecture or laboratory units to plot.';
+  if (hint) {
+    hint.textContent = options.length
+      ? `✓ ${options.length} component${options.length === 1 ? '' : 's'} available for this course.`
+      : '⚠ This course has no lecture or laboratory units to plot.';
+  }
 }
 
 function updateFacultyOptions() {
   const course = getSelectedCourse();
+  const hint = $('facultyHint');
   if (!course) {
     $('scheduleFaculty').innerHTML = '<option value="">Select course first</option>';
     $('scheduleFaculty').disabled = true;
     $('scheduleFaculty').title = 'Select a course first.';
+    if (hint) hint.textContent = '🔒 Select a course first to choose an eligible faculty.';
     return;
   }
 
@@ -578,12 +587,14 @@ function updateFacultyOptions() {
     $('scheduleFaculty').innerHTML = '<option value="">No assigned faculty for this course</option>';
     $('scheduleFaculty').disabled = true;
     $('scheduleFaculty').title = 'Assign a faculty member to this course first (Faculty Course Assignments).';
+    if (hint) hint.textContent = '⚠ No faculty assigned to this course yet -- add one in Faculty Course Assignments first.';
     return;
   }
 
   fillSelect('scheduleFaculty', qualifiedFaculty, (f) => f.faculty_name + (Number(f.is_active) === 0 ? ' (Inactive)' : ''), 'id', 'Select assigned faculty');
   $('scheduleFaculty').disabled = false;
   $('scheduleFaculty').title = '';
+  if (hint) hint.textContent = `✓ ${qualifiedFaculty.length} eligible faculty member${qualifiedFaculty.length === 1 ? '' : 's'} found.`;
 }
 
 function updateRoomOptions() {
@@ -597,11 +608,18 @@ function updateRoomOptions() {
   fillSelect('scheduleRoom', roomsList, (r) => `${r.room_name} - ${r.room_type} (${r.capacity})` + (Number(r.is_active) === 0 ? ' (Inactive)' : ''), 'id', 'No room / hybrid');
 }
 
+const SET_TYPE_HINTS = {
+  set_0: 'Always face-to-face, every week -- a room is required.',
+  set_1: 'Hybrid Rotation A. Alternates week-to-week with Rotation B labs of major courses (won\'t conflict with those), but still conflicts with any lecture or minor-course schedule, since those meet every week.',
+  set_2: 'Hybrid Rotation B. Alternates week-to-week with Rotation A labs of major courses (won\'t conflict with those), but still conflicts with any lecture or minor-course schedule, since those meet every week.',
+};
+
 function updateRoomRequirement() {
   const isSet0 = $('setType').value === 'set_0';
   $('roomRequiredMark').classList.toggle('hidden', !isSet0);
   $('roomRequiredHint').classList.toggle('hidden', !isSet0);
   $('scheduleRoom').required = isSet0;
+  $('setTypeHint').textContent = SET_TYPE_HINTS[$('setType').value] || '';
 }
 
 function updateSectionOptions() {
@@ -922,7 +940,7 @@ function renderTables() {
   ], state.courses, {
     emptyIcon: 'fa-book',
     emptyMessage: 'No courses have been added yet.',
-    rowActions: (c) => `<button class="btn btn-secondary btn-sm" onclick="editCourse(${c.id})" title="Edit"><i class="fas fa-pen"></i></button> <button class="btn btn-danger btn-sm" onclick="del('courses',${c.id})" title="Delete"><i class="fas fa-trash"></i></button>`,
+    rowActions: (c) => `<button class="btn btn-secondary btn-sm" onclick="editCourse(${c.id})" title="Edit" aria-label="Edit course"><i class="fas fa-pen"></i></button> <button class="btn btn-danger btn-sm" onclick="del('courses',${c.id})" title="Delete" aria-label="Delete course"><i class="fas fa-trash"></i></button>`,
   });
 
   renderDataTable('sectionsTable', [
@@ -933,7 +951,7 @@ function renderTables() {
   ], state.sections, {
     emptyIcon: 'fa-layer-group',
     emptyMessage: 'No sections have been created yet.',
-    rowActions: (s) => `<button class="btn btn-secondary btn-sm" onclick="editSection(${s.id})" title="Edit"><i class="fas fa-pen"></i></button> <button class="btn btn-danger btn-sm" onclick="del('sections',${s.id})" title="Delete"><i class="fas fa-trash"></i></button>`,
+    rowActions: (s) => `<button class="btn btn-secondary btn-sm" onclick="editSection(${s.id})" title="Edit" aria-label="Edit section"><i class="fas fa-pen"></i></button> <button class="btn btn-danger btn-sm" onclick="del('sections',${s.id})" title="Delete" aria-label="Delete section"><i class="fas fa-trash"></i></button>`,
   });
 
   renderDataTable('facultyTable', [
@@ -943,7 +961,7 @@ function renderTables() {
   ], state.faculty, {
     emptyIcon: 'fa-chalkboard-user',
     emptyMessage: 'No faculty members have been added yet.',
-    rowActions: (f) => `<button class="btn btn-secondary btn-sm" onclick="editFaculty(${f.id})" title="Edit"><i class="fas fa-pen"></i></button> <button class="btn btn-danger btn-sm" onclick="del('faculty',${f.id})" title="Delete"><i class="fas fa-trash"></i></button>`,
+    rowActions: (f) => `<button class="btn btn-secondary btn-sm" onclick="editFaculty(${f.id})" title="Edit" aria-label="Edit faculty"><i class="fas fa-pen"></i></button> <button class="btn btn-danger btn-sm" onclick="del('faculty',${f.id})" title="Delete" aria-label="Delete faculty"><i class="fas fa-trash"></i></button>`,
   });
 
   renderDataTable('roomsTable', [
@@ -954,7 +972,7 @@ function renderTables() {
   ], state.rooms, {
     emptyIcon: 'fa-door-open',
     emptyMessage: 'No rooms have been added yet.',
-    rowActions: (r) => `<button class="btn btn-secondary btn-sm" onclick="editRoom(${r.id})" title="Edit"><i class="fas fa-pen"></i></button> <button class="btn btn-danger btn-sm" onclick="del('rooms',${r.id})" title="Delete"><i class="fas fa-trash"></i></button>`,
+    rowActions: (r) => `<button class="btn btn-secondary btn-sm" onclick="editRoom(${r.id})" title="Edit" aria-label="Edit room"><i class="fas fa-pen"></i></button> <button class="btn btn-danger btn-sm" onclick="del('rooms',${r.id})" title="Delete" aria-label="Delete room"><i class="fas fa-trash"></i></button>`,
   });
 
   renderDataTable('assignmentsTable', [
@@ -964,7 +982,7 @@ function renderTables() {
   ], state.assignments, {
     emptyIcon: 'fa-user-tie',
     emptyMessage: 'No faculty-course assignments yet.',
-    rowActions: (a) => `<button class="btn btn-secondary btn-sm" onclick="editAssignment(${a.id})" title="Edit"><i class="fas fa-pen"></i></button> <button class="btn btn-danger btn-sm" onclick="del('assignments',${a.id})" title="Delete"><i class="fas fa-trash"></i></button>`,
+    rowActions: (a) => `<button class="btn btn-secondary btn-sm" onclick="editAssignment(${a.id})" title="Edit" aria-label="Edit assignment"><i class="fas fa-pen"></i></button> <button class="btn btn-danger btn-sm" onclick="del('assignments',${a.id})" title="Delete" aria-label="Delete assignment"><i class="fas fa-trash"></i></button>`,
   });
 
   renderDataTable('schedulesTable', [
@@ -980,7 +998,7 @@ function renderTables() {
   ], filteredSchedules(), {
     emptyIcon: 'fa-calendar-xmark',
     emptyMessage: 'No schedules generated yet.',
-    rowActions: (s) => `<button class="btn btn-secondary btn-sm" onclick="editSchedule(${s.id})" title="Edit"><i class="fas fa-pen"></i></button> <button class="btn btn-danger btn-sm" onclick="del('schedules',${s.id})" title="Delete"><i class="fas fa-trash"></i></button>`,
+    rowActions: (s) => `<button class="btn btn-secondary btn-sm" onclick="editSchedule(${s.id})" title="Edit" aria-label="Edit schedule"><i class="fas fa-pen"></i></button> <button class="btn btn-danger btn-sm" onclick="del('schedules',${s.id})" title="Delete" aria-label="Delete schedule"><i class="fas fa-trash"></i></button>`,
   });
 }
 

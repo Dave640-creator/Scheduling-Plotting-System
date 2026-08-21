@@ -36,14 +36,14 @@
   </section>
 
   <!-- Toast Notifications -->
-  <div id="toastContainer" class="toast-container"></div>
+  <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="false"></div>
 
   <!-- Confirm Dialog -->
   <div id="confirmOverlay" class="modal-overlay hidden">
     <div class="modal modal-sm">
       <div class="modal-header">
         <h3><i class="fas fa-triangle-exclamation"></i> <span id="confirmTitle">Confirm</span></h3>
-        <button class="modal-close" type="button" onclick="closeConfirm(false)"><i class="fas fa-xmark"></i></button>
+        <button class="modal-close" type="button" onclick="closeConfirm(false)" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
       </div>
       <div class="confirm-body">
         <i class="fas fa-circle-exclamation"></i>
@@ -280,6 +280,7 @@
             <select id="scheduleComponent" required title="Select a course first" disabled>
               <option value="">Select course first</option>
             </select>
+            <p class="field-hint" id="componentHint">🔒 Select a course first to see its lecture/laboratory components.</p>
           </div>
 
           <div class="form-group">
@@ -298,6 +299,7 @@
             <select id="scheduleFaculty" required title="Select a course first" disabled>
               <option value="">Select course first</option>
             </select>
+            <p class="field-hint" id="facultyHint">🔒 Select a course first to choose an eligible faculty.</p>
           </div>
 
           <div class="form-group">
@@ -319,6 +321,7 @@
               <option value="set_1">SET 1 / Hybrid Rotation A</option>
               <option value="set_2">SET 2 / Hybrid Rotation B</option>
             </select>
+            <p class="field-hint" id="setTypeHint">This section always meets face-to-face, every week.</p>
           </div>
 
           <div class="form-group full-width">
@@ -663,7 +666,7 @@
     <div class="modal">
       <div class="modal-header">
         <h3><i class="fas fa-book"></i> <span id="modalCourseTitle">Add Course</span></h3>
-        <button class="modal-close" type="button" onclick="closeEntityModal('courses')"><i class="fas fa-xmark"></i></button>
+        <button class="modal-close" type="button" onclick="closeEntityModal('courses')" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
       </div>
       <div class="modal-body">
         <form id="courseForm" class="form-grid">
@@ -722,7 +725,7 @@
     <div class="modal modal-sm">
       <div class="modal-header">
         <h3><i class="fas fa-layer-group"></i> <span id="modalSectionTitle">Add Section</span></h3>
-        <button class="modal-close" type="button" onclick="closeEntityModal('sections')"><i class="fas fa-xmark"></i></button>
+        <button class="modal-close" type="button" onclick="closeEntityModal('sections')" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
       </div>
       <div class="modal-body">
         <form id="sectionForm" class="form-grid">
@@ -754,7 +757,7 @@
     <div class="modal modal-sm">
       <div class="modal-header">
         <h3><i class="fas fa-chalkboard-user"></i> <span id="modalFacultyTitle">Add Faculty</span></h3>
-        <button class="modal-close" type="button" onclick="closeEntityModal('faculty')"><i class="fas fa-xmark"></i></button>
+        <button class="modal-close" type="button" onclick="closeEntityModal('faculty')" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
       </div>
       <div class="modal-body">
         <form id="facultyForm" class="form-grid">
@@ -785,7 +788,7 @@
     <div class="modal modal-sm">
       <div class="modal-header">
         <h3><i class="fas fa-door-open"></i> <span id="modalRoomTitle">Add Room</span></h3>
-        <button class="modal-close" type="button" onclick="closeEntityModal('rooms')"><i class="fas fa-xmark"></i></button>
+        <button class="modal-close" type="button" onclick="closeEntityModal('rooms')" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
       </div>
       <div class="modal-body">
         <form id="roomForm" class="form-grid">
@@ -822,7 +825,7 @@
     <div class="modal modal-sm">
       <div class="modal-header">
         <h3><i class="fas fa-user-tie"></i> <span id="modalAssignmentTitle">Assign Course to Faculty</span></h3>
-        <button class="modal-close" type="button" onclick="closeEntityModal('assignments')"><i class="fas fa-xmark"></i></button>
+        <button class="modal-close" type="button" onclick="closeEntityModal('assignments')" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
       </div>
       <div class="modal-body">
         <form id="facultyCourseForm" class="form-grid">
