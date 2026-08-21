@@ -256,144 +256,162 @@
 
       <div class="card">
         <form id="scheduleForm" class="form-grid">
-          <div class="form-group">
-            <label for="scheduleSchoolYear">
-              <i class="fas fa-calendar-week"></i> School Year
-              <span class="required">*</span>
-            </label>
-            <input id="scheduleSchoolYear" type="text" pattern="\d{4}-\d{4}" placeholder="e.g. 2026-2027" required>
-          </div>
 
-          <div class="form-group">
-            <label for="scheduleCourse">
-              <i class="fas fa-book"></i> Course
-              <span class="required">*</span>
-            </label>
-            <select id="scheduleCourse" required></select>
-          </div>
+          <div class="form-section">
+            <div class="form-section-title"><i class="fas fa-clipboard-list"></i> Class Information</div>
 
-          <div class="form-group">
-            <label for="scheduleComponent">
-              <i class="fas fa-layer-group"></i> Component
-              <span class="required">*</span>
-            </label>
-            <select id="scheduleComponent" required title="Select a course first" disabled>
-              <option value="">Select course first</option>
-            </select>
-            <p class="field-hint" id="componentHint">🔒 Select a course first to see its lecture/laboratory components.</p>
-          </div>
+            <div class="form-group">
+              <label for="scheduleSchoolYear">
+                <i class="fas fa-calendar-week"></i> School Year
+                <span class="required">*</span>
+              </label>
+              <input id="scheduleSchoolYear" type="text" pattern="\d{4}-\d{4}" placeholder="e.g. 2026-2027" required>
+            </div>
 
-          <div class="form-group">
-            <label for="scheduleSection">
-              <i class="fas fa-users"></i> Section
-              <span class="required">*</span>
-            </label>
-            <select id="scheduleSection" required></select>
-          </div>
+            <div class="form-group">
+              <label for="scheduleCourse">
+                <i class="fas fa-book"></i> Course
+                <span class="required">*</span>
+              </label>
+              <select id="scheduleCourse" required></select>
+            </div>
 
-          <div class="form-group">
-            <label for="scheduleFaculty">
-              <i class="fas fa-chalkboard-user"></i> Faculty
-              <span class="required">*</span>
-            </label>
-            <select id="scheduleFaculty" required title="Select a course first" disabled>
-              <option value="">Select course first</option>
-            </select>
-            <p class="field-hint" id="facultyHint">🔒 Select a course first to choose an eligible faculty.</p>
-          </div>
+            <div class="form-group">
+              <label for="scheduleComponent">
+                <i class="fas fa-layer-group"></i> Component
+                <span class="required">*</span>
+              </label>
+              <select id="scheduleComponent" required title="Select a course first" disabled>
+                <option value="">Select course first</option>
+              </select>
+              <p class="field-hint" id="componentHint">🔒 Select a course first to see its lecture/laboratory components.</p>
+            </div>
 
-          <div class="form-group">
-            <label for="scheduleRoom">
-              <i class="fas fa-door-open"></i> Room
-              <span class="required hidden" id="roomRequiredMark">*</span>
-            </label>
-            <select id="scheduleRoom"></select>
-            <p class="field-hint hidden" id="roomRequiredHint">SET 0 is always face-to-face, so a room is required.</p>
-          </div>
-
-          <div class="form-group">
-            <label for="setType">
-              <i class="fas fa-cogs"></i> Set Type
-              <span class="required">*</span>
-            </label>
-            <select id="setType" required>
-              <option value="set_0">SET 0 / Always Face-to-Face</option>
-              <option value="set_1">SET 1 / Hybrid Rotation A</option>
-              <option value="set_2">SET 2 / Hybrid Rotation B</option>
-            </select>
-            <p class="field-hint" id="setTypeHint">This section always meets face-to-face, every week.</p>
-          </div>
-
-          <div class="form-group full-width">
-            <label for="dayOfWeek">
-              <i class="fas fa-calendar-days"></i> Day Pattern
-              <span class="required">*</span>
-            </label>
-            <select id="dayOfWeek" required>
-              <option value="MWF">MWF - Monday/Wednesday/Friday</option>
-              <option value="TTH">TTH - Tuesday/Thursday</option>
-              <option value="MW">MW - Monday/Wednesday</option>
-              <option value="TF">TF - Tuesday/Friday</option>
-              <option value="Saturday">Saturday only</option>
-              <option value="Custom">Custom Days (choose below)</option>
-            </select>
-            <div id="customDaysRow" class="custom-days-row hidden">
-              <label class="day-checkbox"><input type="checkbox" value="Monday"> Mon</label>
-              <label class="day-checkbox"><input type="checkbox" value="Tuesday"> Tue</label>
-              <label class="day-checkbox"><input type="checkbox" value="Wednesday"> Wed</label>
-              <label class="day-checkbox"><input type="checkbox" value="Thursday"> Thu</label>
-              <label class="day-checkbox"><input type="checkbox" value="Friday"> Fri</label>
-              <label class="day-checkbox"><input type="checkbox" value="Saturday"> Sat</label>
-              <label class="day-checkbox"><input type="checkbox" value="Sunday"> Sun</label>
+            <div class="form-group">
+              <label for="scheduleSection">
+                <i class="fas fa-users"></i> Section
+                <span class="required">*</span>
+              </label>
+              <select id="scheduleSection" required></select>
             </div>
           </div>
 
-          <div class="form-group">
-            <label for="startTime">
-              <i class="fas fa-clock"></i> Start Time
-              <span class="required">*</span>
-            </label>
-            <select id="startTime" required></select>
+          <div class="form-section">
+            <div class="form-section-title"><i class="fas fa-user-tie"></i> Assignment</div>
+
+            <div class="form-group">
+              <label for="scheduleFaculty">
+                <i class="fas fa-chalkboard-user"></i> Faculty
+                <span class="required">*</span>
+              </label>
+              <select id="scheduleFaculty" required title="Select a course first" disabled>
+                <option value="">Select course first</option>
+              </select>
+              <p class="field-hint" id="facultyHint">🔒 Select a course first to choose an eligible faculty.</p>
+            </div>
+
+            <div class="form-group">
+              <label for="setType">
+                <i class="fas fa-cogs"></i> Set Type
+                <span class="required">*</span>
+              </label>
+              <select id="setType" required>
+                <option value="set_0">SET 0 / Always Face-to-Face</option>
+                <option value="set_1">SET 1 / Hybrid Rotation A</option>
+                <option value="set_2">SET 2 / Hybrid Rotation B</option>
+              </select>
+              <p class="field-hint" id="setTypeHint">This section always meets face-to-face, every week.</p>
+            </div>
           </div>
 
-          <div class="form-group">
-            <label for="scheduleDuration">
-              <i class="fas fa-hourglass-half"></i> Duration
-              <span class="required">*</span>
-            </label>
-            <select id="scheduleDuration" required>
-              <option value="30">30 Minutes</option>
-              <option value="60" selected>1 Hour</option>
-              <option value="90">1 Hour 30 Minutes</option>
-              <option value="120">2 Hours</option>
-              <option value="150">2 Hours 30 Minutes</option>
-              <option value="180">3 Hours</option>
-              <option value="custom">Custom (set end time manually)</option>
-            </select>
+          <div class="form-section">
+            <div class="form-section-title"><i class="fas fa-calendar-days"></i> Schedule</div>
+
+            <div class="form-group full-width">
+              <label for="dayOfWeek">
+                <i class="fas fa-calendar-days"></i> Day Pattern
+                <span class="required">*</span>
+              </label>
+              <select id="dayOfWeek" required>
+                <option value="MWF">MWF - Monday/Wednesday/Friday</option>
+                <option value="TTH">TTH - Tuesday/Thursday</option>
+                <option value="MW">MW - Monday/Wednesday</option>
+                <option value="TF">TF - Tuesday/Friday</option>
+                <option value="Saturday">Saturday only</option>
+                <option value="Custom">Custom Days (choose below)</option>
+              </select>
+              <div id="customDaysRow" class="custom-days-row hidden">
+                <label class="day-checkbox"><input type="checkbox" value="Monday"> Mon</label>
+                <label class="day-checkbox"><input type="checkbox" value="Tuesday"> Tue</label>
+                <label class="day-checkbox"><input type="checkbox" value="Wednesday"> Wed</label>
+                <label class="day-checkbox"><input type="checkbox" value="Thursday"> Thu</label>
+                <label class="day-checkbox"><input type="checkbox" value="Friday"> Fri</label>
+                <label class="day-checkbox"><input type="checkbox" value="Saturday"> Sat</label>
+                <label class="day-checkbox"><input type="checkbox" value="Sunday"> Sun</label>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="startTime">
+                <i class="fas fa-clock"></i> Start Time
+                <span class="required">*</span>
+              </label>
+              <select id="startTime" required></select>
+            </div>
+
+            <div class="form-group">
+              <label for="scheduleDuration">
+                <i class="fas fa-hourglass-half"></i> Duration
+                <span class="required">*</span>
+              </label>
+              <select id="scheduleDuration" required>
+                <option value="30">30 Minutes</option>
+                <option value="60" selected>1 Hour</option>
+                <option value="90">1 Hour 30 Minutes</option>
+                <option value="120">2 Hours</option>
+                <option value="150">2 Hours 30 Minutes</option>
+                <option value="180">3 Hours</option>
+                <option value="custom">Custom (set end time manually)</option>
+              </select>
+              <p class="field-hint hidden" id="customDurationHint">Custom: pick your own End Time below instead of a fixed duration.</p>
+            </div>
+
+            <div class="form-group">
+              <label for="endTime">
+                <i class="fas fa-clock"></i> End Time
+                <span class="required">*</span>
+                <span class="auto-computed-tag" id="endTimeAutoTag">Auto-computed</span>
+              </label>
+              <select id="endTime" required disabled></select>
+            </div>
+
+            <div class="form-group">
+              <label for="scheduleRoom">
+                <i class="fas fa-door-open"></i> Room
+                <span class="required hidden" id="roomRequiredMark">*</span>
+              </label>
+              <select id="scheduleRoom"></select>
+              <p class="field-hint hidden" id="roomRequiredHint">SET 0 is always face-to-face, so a room is required.</p>
+            </div>
+
+            <div class="form-group full-width">
+              <div id="conflictPreview" class="conflict-preview"></div>
+            </div>
           </div>
 
-          <div class="form-group">
-            <label for="endTime">
-              <i class="fas fa-clock"></i> End Time
-              <span class="required">*</span>
-              <span class="auto-computed-tag" id="endTimeAutoTag">Auto-computed</span>
-            </label>
-            <select id="endTime" required disabled></select>
-          </div>
+          <div class="form-section">
+            <div class="form-section-title"><i class="fas fa-sticky-note"></i> Additional Information</div>
 
-          <div class="form-group full-width">
-            <div id="conflictPreview" class="conflict-preview"></div>
-          </div>
-
-          <div class="form-group full-width">
-            <label for="notes">
-              <i class="fas fa-sticky-note"></i> Notes
-            </label>
-            <input id="notes" placeholder="Add optional notes...">
+            <div class="form-group full-width">
+              <label for="notes">
+                <i class="fas fa-sticky-note"></i> Notes
+              </label>
+              <input id="notes" placeholder="Add optional notes...">
+            </div>
           </div>
 
           <div class="form-actions">
-            <button id="scheduleCancelBtn" class="btn btn-secondary hidden" type="button" onclick="cancelEdit('schedules')">
+            <button id="scheduleCancelBtn" class="btn btn-secondary hidden" type="button" onclick="requestCancelEdit('schedules')">
               <i class="fas fa-xmark"></i> Cancel Edit
             </button>
             <button id="scheduleSubmitBtn" class="btn btn-primary" type="submit">
@@ -666,7 +684,7 @@
     <div class="modal">
       <div class="modal-header">
         <h3><i class="fas fa-book"></i> <span id="modalCourseTitle">Add Course</span></h3>
-        <button class="modal-close" type="button" onclick="closeEntityModal('courses')" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
+        <button class="modal-close" type="button" onclick="requestCloseEntityModal('courses')" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
       </div>
       <div class="modal-body">
         <form id="courseForm" class="form-grid">
@@ -713,7 +731,7 @@
         </form>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" type="button" onclick="closeEntityModal('courses')">Cancel</button>
+        <button class="btn btn-secondary" type="button" onclick="requestCloseEntityModal('courses')">Cancel</button>
         <button id="courseSubmitBtn" class="btn btn-primary" type="submit" form="courseForm">
           <i class="fas fa-plus"></i> Add Course
         </button>
@@ -725,7 +743,7 @@
     <div class="modal modal-sm">
       <div class="modal-header">
         <h3><i class="fas fa-layer-group"></i> <span id="modalSectionTitle">Add Section</span></h3>
-        <button class="modal-close" type="button" onclick="closeEntityModal('sections')" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
+        <button class="modal-close" type="button" onclick="requestCloseEntityModal('sections')" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
       </div>
       <div class="modal-body">
         <form id="sectionForm" class="form-grid">
@@ -745,7 +763,7 @@
         </form>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" type="button" onclick="closeEntityModal('sections')">Cancel</button>
+        <button class="btn btn-secondary" type="button" onclick="requestCloseEntityModal('sections')">Cancel</button>
         <button id="sectionSubmitBtn" class="btn btn-primary" type="submit" form="sectionForm">
           <i class="fas fa-plus"></i> Add Section
         </button>
@@ -757,7 +775,7 @@
     <div class="modal modal-sm">
       <div class="modal-header">
         <h3><i class="fas fa-chalkboard-user"></i> <span id="modalFacultyTitle">Add Faculty</span></h3>
-        <button class="modal-close" type="button" onclick="closeEntityModal('faculty')" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
+        <button class="modal-close" type="button" onclick="requestCloseEntityModal('faculty')" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
       </div>
       <div class="modal-body">
         <form id="facultyForm" class="form-grid">
@@ -776,7 +794,7 @@
         </form>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" type="button" onclick="closeEntityModal('faculty')">Cancel</button>
+        <button class="btn btn-secondary" type="button" onclick="requestCloseEntityModal('faculty')">Cancel</button>
         <button id="facultySubmitBtn" class="btn btn-primary" type="submit" form="facultyForm">
           <i class="fas fa-plus"></i> Add Faculty
         </button>
@@ -788,7 +806,7 @@
     <div class="modal modal-sm">
       <div class="modal-header">
         <h3><i class="fas fa-door-open"></i> <span id="modalRoomTitle">Add Room</span></h3>
-        <button class="modal-close" type="button" onclick="closeEntityModal('rooms')" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
+        <button class="modal-close" type="button" onclick="requestCloseEntityModal('rooms')" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
       </div>
       <div class="modal-body">
         <form id="roomForm" class="form-grid">
@@ -813,7 +831,7 @@
         </form>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" type="button" onclick="closeEntityModal('rooms')">Cancel</button>
+        <button class="btn btn-secondary" type="button" onclick="requestCloseEntityModal('rooms')">Cancel</button>
         <button id="roomSubmitBtn" class="btn btn-primary" type="submit" form="roomForm">
           <i class="fas fa-plus"></i> Add Room
         </button>
@@ -825,7 +843,7 @@
     <div class="modal modal-sm">
       <div class="modal-header">
         <h3><i class="fas fa-user-tie"></i> <span id="modalAssignmentTitle">Assign Course to Faculty</span></h3>
-        <button class="modal-close" type="button" onclick="closeEntityModal('assignments')" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
+        <button class="modal-close" type="button" onclick="requestCloseEntityModal('assignments')" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
       </div>
       <div class="modal-body">
         <form id="facultyCourseForm" class="form-grid">
@@ -840,7 +858,7 @@
         </form>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" type="button" onclick="closeEntityModal('assignments')">Cancel</button>
+        <button class="btn btn-secondary" type="button" onclick="requestCloseEntityModal('assignments')">Cancel</button>
         <button id="assignmentSubmitBtn" class="btn btn-primary" type="submit" form="facultyCourseForm">
           <i class="fas fa-plus"></i> Assign
         </button>

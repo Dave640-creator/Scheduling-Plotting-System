@@ -781,6 +781,38 @@ select:focus-visible,
   grid-column: 1 / -1;
 }
 
+/* Groups a long form (e.g. Plot Schedule) into labeled sections so related
+   fields read together instead of as one undifferentiated field list. */
+.form-section {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--spacing-lg);
+  padding-top: var(--spacing-xl);
+  border-top: 1px solid var(--border);
+}
+
+.form-section:first-of-type {
+  padding-top: 0;
+  border-top: none;
+}
+
+.form-section-title {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--primary);
+}
+
+.form-section-title i {
+  color: var(--accent);
+}
+
 .form-group.form-check label {
   cursor: pointer;
 }

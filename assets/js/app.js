@@ -131,6 +131,50 @@ function closeConfirm(result) {
 window.closeConfirm = closeConfirm;
 
 /* =====================================================
+   UNSAVED-CHANGES PROTECTION
+   A form is marked "dirty" only by real user input/change events --
+   cascading dropdowns, startEdit() populating fields, and cancelEdit()
+   resetting them are all done via JS and never fire those events, so
+   this only catches genuine unsaved edits, not programmatic updates.
+   ===================================================== */
+
+const dirtyForms = new Set();
+const UNSAVED_FORM_COPY = {
+  scheduleForm:      { title: 'Unsaved Schedule',   message: 'You have unfinished schedule information. Do you want to leave without saving?' },
+  courseForm:        { title: 'Unsaved Course',     message: 'You have unsaved changes to this course. Do you want to leave without saving?' },
+  sectionForm:       { title: 'Unsaved Section',    message: 'You have unsaved changes to this section. Do you want to leave without saving?' },
+  facultyForm:       { title: 'Unsaved Faculty',    message: 'You have unsaved changes to this faculty member. Do you want to leave without saving?' },
+  roomForm:          { title: 'Unsaved Room',       message: 'You have unsaved changes to this room. Do you want to leave without saving?' },
+  facultyCourseForm: { title: 'Unsaved Assignment', message: 'You have unsaved changes to this assignment. Do you want to leave without saving?' },
+};
+
+function markFormDirty(formId) { dirtyForms.add(formId); }
+function clearFormDirty(formId) { dirtyForms.delete(formId); }
+
+async function confirmLeaveIfDirty(formId) {
+  if (!dirtyForms.has(formId)) return true;
+  const copy = UNSAVED_FORM_COPY[formId] || { title: 'Unsaved Changes', message: 'You have unsaved changes. Do you want to leave without saving?' };
+  const leave = await showConfirm(copy.message, copy.title, { confirmLabel: 'Leave', confirmIcon: 'fa-right-from-bracket', danger: true });
+  if (leave) clearFormDirty(formId);
+  return leave;
+}
+
+Object.keys(UNSAVED_FORM_COPY).forEach((formId) => {
+  const form = $(formId);
+  if (!form) return;
+  form.addEventListener('input', () => markFormDirty(formId));
+  form.addEventListener('change', () => markFormDirty(formId));
+});
+
+// Browser-level fallback so an actual page refresh/tab close also warns,
+// not just in-app navigation.
+window.addEventListener('beforeunload', (e) => {
+  if (!dirtyForms.size) return;
+  e.preventDefault();
+  e.returnValue = '';
+});
+
+/* =====================================================
    ENTITY MODALS (Add/Edit forms)
    ===================================================== */
 
@@ -149,6 +193,28 @@ function closeEntityModal(entity) {
   cancelEdit(entity);
 }
 window.closeEntityModal = closeEntityModal;
+
+// Guarded version for user-initiated closes (X button, backdrop, Escape) --
+// confirms first if the form has unsaved edits. formSubmit()'s own success
+// path calls closeEntityModal() directly, skipping this, since a save
+// just happened and there's nothing left to lose.
+async function requestCloseEntityModal(entity) {
+  const cfg = formConfig[entity];
+  const proceed = await confirmLeaveIfDirty(cfg.formId);
+  if (!proceed) return;
+  closeEntityModal(entity);
+}
+window.requestCloseEntityModal = requestCloseEntityModal;
+
+// Guarded version of cancelEdit() for non-modal forms (Plot Schedule's
+// "Cancel Edit" button) -- same unsaved-changes confirmation as modals get.
+async function requestCancelEdit(entity) {
+  const cfg = formConfig[entity];
+  const proceed = await confirmLeaveIfDirty(cfg.formId);
+  if (!proceed) return;
+  cancelEdit(entity);
+}
+window.requestCancelEdit = requestCancelEdit;
 
 function showLogin() {
   $('appShell').classList.add('hidden');
@@ -763,6 +829,7 @@ function updateEndTimeFromDuration() {
   const durationVal = $('scheduleDuration').value;
   const endTimeSelect = $('endTime');
   const autoTag = $('endTimeAutoTag');
+  $('customDurationHint').classList.toggle('hidden', durationVal !== 'custom');
 
   if (durationVal === 'custom') {
     endTimeSelect.disabled = false;
@@ -1066,6 +1133,7 @@ function cancelEdit(entity) {
   $(cfg.submitBtnId).innerHTML = cfg.addLabel;
   if (cfg.cancelBtnId) $(cfg.cancelBtnId).classList.add('hidden');
   $(cfg.formId).reset();
+  clearFormDirty(cfg.formId);
   clearValidationState(cfg.formId);
   if (cfg.modalTitleId) $(cfg.modalTitleId).textContent = cfg.addTitle;
   if (entity === 'schedules') {
@@ -1192,20 +1260,94 @@ function editSchedule(id) {
 }
 window.editSchedule = editSchedule;
 
-document.querySelectorAll('.nav-item').forEach((btn) => btn.addEventListener('click', () => {
-  document.querySelectorAll('.nav-item,.view').forEach((el) => el.classList.remove('active'));
-  btn.classList.add('active'); $(btn.dataset.view).classList.add('active');
-  $('sidebar').classList.remove('open');
-  $('sidebarOverlay').classList.remove('show');
-}));
+/* =====================================================
+   HASH-BASED ROUTING & STATE PRESERVATION
+   The current view -- and, for Schedules, the active filters -- is
+   mirrored into the URL hash (#schedules?sy=2026-2027&section=3) so a
+   page refresh returns the user to where they were instead of resetting
+   to the Dashboard, and Back/Forward moves between views as expected.
+   ===================================================== */
 
-document.querySelectorAll('[data-quick-nav]').forEach((btn) => btn.addEventListener('click', () => {
-  const view = btn.dataset.quickNav;
+function currentFiltersQueryString() {
+  const params = new URLSearchParams();
+  if (scheduleFilters.schoolYear) params.set('sy', scheduleFilters.schoolYear);
+  if (scheduleFilters.year) params.set('year', scheduleFilters.year);
+  if (scheduleFilters.semester) params.set('sem', scheduleFilters.semester);
+  if (scheduleFilters.section) params.set('section', scheduleFilters.section);
+  if (scheduleFilters.faculty) params.set('faculty', scheduleFilters.faculty);
+  return params.toString();
+}
+
+function parseHash() {
+  const raw = location.hash.replace(/^#/, '');
+  const [view, qs] = raw.split('?');
+  return { view: view || 'dashboard', params: new URLSearchParams(qs || '') };
+}
+
+function restoreScheduleFiltersFromParams(params) {
+  scheduleFilters.schoolYear = params.get('sy') || '';
+  scheduleFilters.year = params.get('year') || '';
+  scheduleFilters.semester = params.get('sem') || '';
+  scheduleFilters.section = params.get('section') || '';
+  scheduleFilters.faculty = params.get('faculty') || '';
+  $('filterSchoolYear').value = scheduleFilters.schoolYear;
+  $('filterYear').value = scheduleFilters.year;
+  $('filterSemester').value = scheduleFilters.semester;
+  $('filterSection').value = scheduleFilters.section;
+  $('filterFaculty').value = scheduleFilters.faculty;
+}
+
+function activateView(view) {
   document.querySelectorAll('.nav-item,.view').forEach((el) => el.classList.remove('active'));
   const navBtn = document.querySelector(`.nav-item[data-view="${view}"]`);
   if (navBtn) navBtn.classList.add('active');
-  $(view).classList.add('active');
-}));
+  const viewEl = $(view);
+  if (viewEl) viewEl.classList.add('active');
+}
+
+// Applies whatever the URL hash says right now. Used on initial load
+// (refresh) and whenever the hash changes from Back/Forward navigation.
+function applyRouteFromHash() {
+  const { view, params } = parseHash();
+  const validViews = Array.from(document.querySelectorAll('.view')).map((v) => v.id);
+  const target = validViews.includes(view) ? view : 'dashboard';
+  if (target === 'schedules') restoreScheduleFiltersFromParams(params);
+  activateView(target);
+  if (target === 'schedules') { getTableState('schedulesTable').page = 1; renderTables(); }
+}
+window.addEventListener('hashchange', applyRouteFromHash);
+
+// Keeps the hash's query string in sync whenever the Schedules filters
+// change, without spamming browser history (replaceState, not pushState).
+function syncScheduleFiltersToHash() {
+  if (!$('schedules').classList.contains('active')) return;
+  const qs = currentFiltersQueryString();
+  const newHash = '#schedules' + (qs ? '?' + qs : '');
+  if (location.hash !== newHash) history.replaceState(null, '', newHash);
+}
+
+// Switches views, guarding against losing an in-progress Plot Schedule
+// form, and records the new view (plus filters, for Schedules) in the hash.
+async function goToView(view) {
+  const leavingPlotting = $('plotting').classList.contains('active') && view !== 'plotting';
+  if (leavingPlotting) {
+    const proceed = await confirmLeaveIfDirty('scheduleForm');
+    if (!proceed) return;
+  }
+  $('sidebar').classList.remove('open');
+  $('sidebarOverlay').classList.remove('show');
+  const qs = view === 'schedules' ? currentFiltersQueryString() : '';
+  const newHash = '#' + view + (qs ? '?' + qs : '');
+  if (location.hash === newHash) {
+    activateView(view);
+  } else {
+    location.hash = newHash; // triggers hashchange -> applyRouteFromHash
+  }
+}
+window.goToView = goToView;
+
+document.querySelectorAll('.nav-item').forEach((btn) => btn.addEventListener('click', () => goToView(btn.dataset.view)));
+document.querySelectorAll('[data-quick-nav]').forEach((btn) => btn.addEventListener('click', () => goToView(btn.dataset.quickNav)));
 
 document.querySelectorAll('[data-quick-open-modal]').forEach((btn) => btn.addEventListener('click', () => {
   const modalId = btn.dataset.quickOpenModal;
@@ -1213,13 +1355,14 @@ document.querySelectorAll('[data-quick-open-modal]').forEach((btn) => btn.addEve
   if (entity) openEntityModal(entity);
 }));
 
-/* Close modals via backdrop click or Escape key */
+/* Close modals via backdrop click or Escape key (guarded: confirms first
+   if the form inside has unsaved edits) */
 document.querySelectorAll('.modal-overlay').forEach((overlay) => {
   overlay.addEventListener('click', (e) => {
     if (e.target !== overlay) return;
     if (overlay.id === 'confirmOverlay') { closeConfirm(false); return; }
     const entity = Object.keys(formConfig).find((k) => formConfig[k].modalId === overlay.id);
-    if (entity) closeEntityModal(entity);
+    if (entity) requestCloseEntityModal(entity);
   });
 });
 
@@ -1228,7 +1371,7 @@ document.addEventListener('keydown', (e) => {
   if (!$('confirmOverlay').classList.contains('hidden')) { closeConfirm(false); return; }
   Object.keys(formConfig).forEach((entity) => {
     const cfg = formConfig[entity];
-    if (cfg.modalId && !$(cfg.modalId).classList.contains('hidden')) closeEntityModal(entity);
+    if (cfg.modalId && !$(cfg.modalId).classList.contains('hidden')) requestCloseEntityModal(entity);
   });
 });
 
@@ -1628,6 +1771,7 @@ updateRoomRequirement();
     scheduleFilters.faculty = $('filterFaculty').value;
     getTableState('schedulesTable').page = 1;
     renderTables();
+    syncScheduleFiltersToHash();
   });
 });
 
@@ -1636,6 +1780,7 @@ $('clearFiltersBtn').addEventListener('click', () => {
   scheduleFilters.schoolYear = ''; scheduleFilters.year = ''; scheduleFilters.semester = ''; scheduleFilters.section = ''; scheduleFilters.faculty = '';
   getTableState('schedulesTable').page = 1;
   renderTables();
+  syncScheduleFiltersToHash();
 });
 
 /* Free-text search boxes for every table */
@@ -1668,7 +1813,7 @@ $('loginForm').addEventListener('submit', async (e) => {
     $('loginForm').reset();
     clearValidationState('loginForm');
     showApp();
-    loadAll().catch((err) => showToast(err.message, 'error'));
+    loadAll().then(applyRouteFromHash).catch((err) => showToast(err.message, 'error'));
   } catch (err) {
     $('loginError').textContent = err.message;
     btn.disabled = false;
@@ -1700,6 +1845,7 @@ document.querySelectorAll('#customDaysRow input[type="checkbox"]').forEach((cb) 
     if (session.logged_in) {
       showApp();
       await loadAll();
+      applyRouteFromHash();
     } else {
       showLogin();
     }
