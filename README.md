@@ -51,16 +51,16 @@ Institute Head only.
 4. Check database connection in:
    `api/config.php`
 
-   Default:
+   As currently checked into this project:
    ```php
    DB_HOST = 127.0.0.1
-   DB_PORT = 3306
+   DB_PORT = 3307
    DB_NAME = ics_plotting_system
    DB_USER = root
    DB_PASS = empty
    ```
 
-   **If your XAMPP MySQL runs on a different port** (common if you already have another MySQL/MariaDB installed and it's fighting over port 3306 -- e.g. it got bumped to 3307), just change `DB_PORT` in `api/config.php` to match. Check your actual port in XAMPP Control Panel > MySQL > Config > `my.ini` (look for the `port =` line).
+   `DB_PORT` is set to `3307` (not MySQL's standard `3306`) because this project's XAMPP install had another MySQL/MariaDB instance already occupying 3306. **If your own XAMPP MySQL runs on the standard port**, change `DB_PORT` in `api/config.php` back to `3306`. Check your actual port in XAMPP Control Panel > MySQL > Config > `my.ini` (look for the `port =` line).
 
    Leave `DB_HOST` as `127.0.0.1` -- don't change it to `localhost`. This isn't just style: PHP's MySQL driver treats `localhost` as "connect via the local Unix socket file," which completely ignores whatever you put in `DB_PORT`. Only `127.0.0.1` (or the actual IP) forces a real TCP connection on the port you specify. This one tripped up testing before it was caught.
 

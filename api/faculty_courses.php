@@ -51,6 +51,10 @@ try {
         $facultyId = (int)$d['faculty_id'];
         $courseId = (int)$d['course_id'];
 
+        $existsStmt = $pdo->prepare('SELECT id FROM faculty_courses WHERE id=?');
+        $existsStmt->execute([$id]);
+        if (!$existsStmt->fetch()) json_response(false, 'Faculty course assignment not found.', null, 404);
+
         $dupStmt = $pdo->prepare('SELECT f.faculty_name, c.course_code FROM faculty_courses fc
             JOIN faculty f ON f.id = fc.faculty_id JOIN courses c ON c.id = fc.course_id
             WHERE fc.faculty_id=? AND fc.course_id=? AND fc.id<>?');

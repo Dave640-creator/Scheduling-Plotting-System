@@ -27,6 +27,9 @@ try {
         if ($studentCount < 1 || $studentCount > 30) {
             json_response(false, 'Student count must be between 1 and 30.', null, 422);
         }
+        $existsStmt = $pdo->prepare('SELECT id FROM sections WHERE id=?');
+        $existsStmt->execute([$id]);
+        if (!$existsStmt->fetch()) json_response(false, 'Section not found.', null, 404);
         $stmt = $pdo->prepare('UPDATE sections SET program_code=?, year_level=?, section_no=?, student_count=? WHERE id=?');
         $stmt->execute([$d['program_code'] ?? 'BSCS',(int)$d['year_level'],$d['section_no'],$studentCount,$id]);
         json_response(true, 'Section updated successfully');

@@ -29,6 +29,9 @@ try {
             json_response(false, 'Max preparations must be between 1 and 20.', null, 422);
         }
         $isActive = array_key_exists('is_active', $d) ? (int)!!$d['is_active'] : 1;
+        $existsStmt = $pdo->prepare('SELECT id FROM faculty WHERE id=?');
+        $existsStmt->execute([$id]);
+        if (!$existsStmt->fetch()) json_response(false, 'Faculty not found.', null, 404);
         $stmt = $pdo->prepare('UPDATE faculty SET faculty_name=?, max_preparations=?, is_active=? WHERE id=?');
         $stmt->execute([$d['faculty_name'], $maxPreparations, $isActive, $id]);
         json_response(true, 'Faculty updated successfully');

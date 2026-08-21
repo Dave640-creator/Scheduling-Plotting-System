@@ -25,6 +25,9 @@ try {
         $capacity = (int)$d['capacity'];
         if ($capacity <= 0) json_response(false, 'Room capacity must be a positive number.', null, 422);
         $isActive = array_key_exists('is_active', $d) ? (int)!!$d['is_active'] : 1;
+        $existsStmt = $pdo->prepare('SELECT id FROM rooms WHERE id=?');
+        $existsStmt->execute([$id]);
+        if (!$existsStmt->fetch()) json_response(false, 'Room not found.', null, 404);
         $stmt = $pdo->prepare('UPDATE rooms SET room_name=?, room_type=?, capacity=?, is_active=? WHERE id=?');
         $stmt->execute([$d['room_name'],$d['room_type'],$capacity,$isActive,$id]);
         json_response(true, 'Room updated successfully');

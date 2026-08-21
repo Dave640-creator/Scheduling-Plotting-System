@@ -1310,7 +1310,7 @@ th {
 
 th.sortable {
   cursor: pointer;
-  user-select: none;
+  -webkit-user-select: none;
   transition: var(--transition);
 }
 

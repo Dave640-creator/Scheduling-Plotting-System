@@ -71,6 +71,14 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
         if (empty($submittedDays) || !empty($invalidDays)) {
             json_response(false, 'Please select at least one valid day of the week.', null, 422);
         }
+        // The frontend's checkbox UI can't submit the same day twice, but a
+        // direct API call could send e.g. "Monday,Monday,Wednesday". Without
+        // this check, the duplicate would inflate $dayCount below and let a
+        // schedule pass the weekly-hours requirement with fewer distinct
+        // meeting days than actually required (bug #12).
+        if (count($submittedDays) !== count(array_unique($submittedDays))) {
+            json_response(false, 'Duplicate days are not allowed in the day pattern.', null, 422);
+        }
     }
 
     $courseStmt = $pdo->prepare('SELECT * FROM courses WHERE id=?');

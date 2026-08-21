@@ -1,8 +1,24 @@
 <?php
 header('Content-Type: application/json; charset=utf-8');
-header('Access-Control-Allow-Origin: *');
+
+// This app is same-origin only (the frontend calls these endpoints from the
+// same host it's served from, using credentials: 'same-origin' -- see
+// assets/js/app.js). A wildcard 'Access-Control-Allow-Origin: *' is
+// unnecessarily permissive for an app that relies on session-cookie
+// authentication: it has no legitimate use here and only widens the attack
+// surface if the frontend's fetch options ever change. Only echo back the
+// Origin header (enabling CORS) when it actually matches this server's own
+// origin; otherwise omit CORS headers entirely so cross-origin pages cannot
+// read responses.
+$scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+$selfOrigin = $scheme . '://' . ($_SERVER['HTTP_HOST'] ?? '');
+$requestOrigin = $_SERVER['HTTP_ORIGIN'] ?? '';
+if ($requestOrigin !== '' && $requestOrigin === $selfOrigin) {
+    header('Access-Control-Allow-Origin: ' . $requestOrigin);
+    header('Access-Control-Allow-Credentials: true');
+}
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-CSRF-Token');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
