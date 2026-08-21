@@ -875,6 +875,133 @@ input:read-only {
   cursor: default;
 }
 
+/* =====================================================
+   REAL-TIME FIELD VALIDATION
+   ===================================================== */
+
+.field-wrap {
+  position: relative;
+}
+
+.field-wrap input {
+  padding-right: 42px;
+}
+
+.field-status-icon {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.field-status-icon.show {
+  display: flex;
+}
+
+.field-status-icon.valid {
+  background: var(--success);
+}
+
+.field-status-icon.invalid {
+  background: var(--danger);
+}
+
+.field-status-icon svg {
+  width: 11px;
+  height: 11px;
+  fill: white;
+}
+
+input.field-valid,
+select.field-valid {
+  border-color: var(--success);
+}
+
+input.field-invalid,
+select.field-invalid {
+  border-color: var(--danger);
+}
+
+input.field-invalid:focus,
+select.field-invalid:focus {
+  box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.12);
+}
+
+input.field-valid:focus,
+select.field-valid:focus {
+  box-shadow: 0 0 0 3px rgba(39, 174, 96, 0.12);
+}
+
+.validation-hint {
+  display: none;
+  font-weight: 600;
+}
+
+.validation-hint.valid-text {
+  color: var(--success);
+}
+
+.validation-hint.invalid-text {
+  color: var(--danger);
+}
+
+@keyframes fieldShake {
+  10%, 90% { transform: translateX(-1px); }
+  20%, 80% { transform: translateX(2px); }
+  30%, 50%, 70% { transform: translateX(-4px); }
+  40%, 60% { transform: translateX(4px); }
+}
+
+.shake {
+  animation: fieldShake 0.4s cubic-bezier(.36,.07,.19,.97);
+}
+
+.form-error-summary {
+  display: none;
+  grid-column: 1 / -1;
+  background: #fdeeee;
+  border: 1px solid #f6c9c9;
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md) var(--spacing-lg);
+  font-size: 13px;
+}
+
+.form-error-summary.show {
+  display: block;
+  animation: fieldFadeIn 0.2s ease;
+}
+
+.form-error-summary strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--danger);
+  margin-bottom: 6px;
+  font-size: 13.5px;
+}
+
+.form-error-summary ul {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--danger);
+}
+
+.form-error-summary li {
+  margin-bottom: 2px;
+}
+
+@keyframes fieldFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .auto-computed-tag {
   margin-left: auto;
   font-size: 10.5px;

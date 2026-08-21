@@ -939,6 +939,7 @@ function cancelEdit(entity) {
   $(cfg.submitBtnId).innerHTML = cfg.addLabel;
   if (cfg.cancelBtnId) $(cfg.cancelBtnId).classList.add('hidden');
   $(cfg.formId).reset();
+  clearValidationState(cfg.formId);
   if (cfg.modalTitleId) $(cfg.modalTitleId).textContent = cfg.addTitle;
   if (entity === 'schedules') {
     $('scheduleSchoolYear').value = suggestedSchoolYear();
@@ -1112,9 +1113,278 @@ $('sidebarOverlay').addEventListener('click', () => {
   $('sidebarOverlay').classList.remove('show');
 });
 
+/* =====================================================
+   REAL-TIME FIELD VALIDATION
+   Same pattern everywhere: green/red border + icon while
+   typing, an inline message under the field, a shake on a
+   failed submit attempt, and an error summary box listing
+   everything wrong at the top of the form.
+   ===================================================== */
+
+const ICON_VALID = '<svg viewBox="0 0 24 24"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg>';
+const ICON_INVALID = '<svg viewBox="0 0 24 24"><path d="M12 2 1 21h22zm1 14h-2v2h2zm0-8h-2v6h2z"/></svg>';
+
+// One rule set per field id. `required` fields must be non-empty; empty
+// optional fields are left in a neutral (unstyled) state rather than shown
+// as invalid.
+const validationRules = {
+  loginUsername: { required: true, label: 'Username' },
+  loginPassword: { required: true, label: 'Password' },
+
+  courseCode: { required: true, minLength: 2, label: 'Course code' },
+  courseTitle: { required: true, minLength: 3, label: 'Course title' },
+  courseYear: { required: true, numeric: true, min: 1, max: 4, label: 'Year level' },
+  lecUnits: { numeric: true, min: 0, label: 'Lecture units' },
+  labUnits: { numeric: true, min: 0, label: 'Laboratory units' },
+
+  sectionYear: { required: true, numeric: true, min: 1, max: 4, label: 'Year level' },
+  sectionNo: { required: true, label: 'Section number' },
+  studentCount: { required: true, numeric: true, min: 1, max: 30, label: 'Student count', message: 'Student count must be between 1 and 30.' },
+
+  facultyName: { required: true, minLength: 2, label: 'Faculty name' },
+  maxPreparations: { required: true, numeric: true, min: 1, max: 20, label: 'Max preparations', message: 'Max preparations must be between 1 and 20.' },
+
+  roomName: { required: true, label: 'Room name' },
+  roomCapacity: { required: true, numeric: true, min: 1, label: 'Capacity', message: 'Room capacity must be a positive number.' },
+
+  assignFaculty: { required: true, label: 'Faculty' },
+  assignCourse: { required: true, label: 'Course' },
+
+  scheduleSchoolYear: { required: true, pattern: /^\d{4}-\d{4}$/, label: 'School year', message: 'School year must be in the format YYYY-YYYY (e.g. 2026-2027).' },
+  scheduleCourse: { required: true, label: 'Course' },
+  scheduleSection: { required: true, label: 'Section' },
+  scheduleFaculty: { required: true, label: 'Faculty' },
+  startTime: { required: true, label: 'Start time' },
+  endTime: { required: true, label: 'End time' },
+};
+
+// Which fields belong to which <form>, for "validate everything and show
+// the summary" on submit.
+const formFieldMap = {
+  loginForm: ['loginUsername', 'loginPassword'],
+  courseForm: ['courseCode', 'courseTitle', 'courseYear', 'lecUnits', 'labUnits'],
+  sectionForm: ['sectionYear', 'sectionNo', 'studentCount'],
+  facultyForm: ['facultyName', 'maxPreparations'],
+  roomForm: ['roomName', 'roomCapacity'],
+  facultyCourseForm: ['assignFaculty', 'assignCourse'],
+  scheduleForm: ['scheduleSchoolYear', 'scheduleCourse', 'scheduleSection', 'scheduleFaculty', 'startTime', 'endTime'],
+};
+
+function shakeEl(el) {
+  el.classList.remove('shake');
+  void el.offsetWidth; // restart the animation
+  el.classList.add('shake');
+}
+
+/** Wraps a text/number/password input in a .field-wrap div with a status-icon slot. Selects are left unwrapped (no icon) to avoid colliding with the native dropdown arrow. */
+function ensureFieldWrap(input) {
+  if (input.tagName !== 'INPUT') return input;
+  if (input.parentElement.classList.contains('field-wrap')) return input.parentElement;
+  const wrap = document.createElement('div');
+  wrap.className = 'field-wrap';
+  input.parentElement.insertBefore(wrap, input);
+  wrap.appendChild(input);
+  const icon = document.createElement('span');
+  icon.className = 'field-status-icon';
+  icon.id = input.id + 'StatusIcon';
+  wrap.appendChild(icon);
+  return wrap;
+}
+
+/** Creates (once) the small inline message shown under a field, separate from any pre-existing static .field-hint so we never clobber existing help text. */
+function ensureValidationHint(input) {
+  let hint = document.getElementById(input.id + 'ValidationHint');
+  if (!hint) {
+    hint = document.createElement('p');
+    hint.className = 'field-hint validation-hint';
+    hint.id = input.id + 'ValidationHint';
+    const anchor = input.closest('.field-wrap') || input;
+    anchor.insertAdjacentElement('afterend', hint);
+  }
+  return hint;
+}
+
+function validateField(id, opts = {}) {
+  const rule = validationRules[id];
+  const el = $(id);
+  if (!rule || !el || el.disabled) return true;
+
+  const icon = document.getElementById(id + 'StatusIcon');
+  const hint = document.getElementById(id + 'ValidationHint');
+  const value = el.value;
+
+  const setState = (state, message) => {
+    el.classList.toggle('field-valid', state === 'valid');
+    el.classList.toggle('field-invalid', state === 'invalid');
+    if (icon) {
+      icon.classList.toggle('show', state !== 'neutral');
+      icon.classList.toggle('valid', state === 'valid');
+      icon.classList.toggle('invalid', state === 'invalid');
+      icon.innerHTML = state === 'valid' ? ICON_VALID : state === 'invalid' ? ICON_INVALID : '';
+    }
+    if (hint) {
+      hint.style.display = state === 'neutral' ? 'none' : 'block';
+      hint.classList.toggle('valid-text', state === 'valid');
+      hint.classList.toggle('invalid-text', state === 'invalid');
+      if (message) hint.textContent = message;
+    }
+  };
+
+  if (value.trim() === '') {
+    if (rule.required) {
+      setState('invalid', rule.message || `${rule.label} is required.`);
+      if (!opts.silent) shakeEl(el);
+      return false;
+    }
+    setState('neutral');
+    return true;
+  }
+
+  let ok = true;
+  let message = rule.successMessage || 'Looks good!';
+
+  if (rule.minLength && value.trim().length < rule.minLength) {
+    ok = false;
+    message = rule.message || `${rule.label} must be at least ${rule.minLength} characters.`;
+  } else if (rule.pattern && !rule.pattern.test(value.trim())) {
+    ok = false;
+    message = rule.message || `Please enter a valid ${rule.label.toLowerCase()}.`;
+  } else if (rule.numeric) {
+    const num = parseFloat(value);
+    if (isNaN(num)) {
+      ok = false;
+      message = `${rule.label} must be a number.`;
+    } else if (rule.min !== undefined && num < rule.min) {
+      ok = false;
+      message = rule.message || `${rule.label} must be at least ${rule.min}.`;
+    } else if (rule.max !== undefined && num > rule.max) {
+      ok = false;
+      message = rule.message || `${rule.label} must be at most ${rule.max}.`;
+    }
+  }
+
+  setState(ok ? 'valid' : 'invalid', message);
+  if (!ok && !opts.silent) shakeEl(el);
+  return ok;
+}
+
+function getOrCreateErrorSummary(formId) {
+  const form = $(formId);
+  let summary = form.querySelector(':scope > .form-error-summary');
+  if (!summary) {
+    summary = document.createElement('div');
+    summary.className = 'form-error-summary';
+    summary.innerHTML = '<strong><i class="fas fa-triangle-exclamation"></i> Please check the following:</strong><ul></ul>';
+    form.insertBefore(summary, form.firstChild);
+  }
+  return summary;
+}
+
+function showFormErrorSummary(formId, errors) {
+  const summary = getOrCreateErrorSummary(formId);
+  if (!errors.length) {
+    summary.classList.remove('show');
+    return;
+  }
+  summary.querySelector('ul').innerHTML = errors.map((e) => `<li>${escapeHtml(e)}</li>`).join('');
+  summary.classList.add('show');
+}
+
+function hideFormErrorSummary(formId) {
+  const form = $(formId);
+  const summary = form.querySelector(':scope > .form-error-summary');
+  if (summary) summary.classList.remove('show');
+}
+
+/** Clears every validation visual for a form -- called whenever a form/modal is reset or reopened so stale red/green states don't linger. */
+function clearValidationState(formId) {
+  (formFieldMap[formId] || []).forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.classList.remove('field-valid', 'field-invalid', 'shake');
+    const icon = document.getElementById(id + 'StatusIcon');
+    if (icon) { icon.classList.remove('show', 'valid', 'invalid'); icon.innerHTML = ''; }
+    const hint = document.getElementById(id + 'ValidationHint');
+    if (hint) { hint.style.display = 'none'; hint.classList.remove('valid-text', 'invalid-text'); }
+  });
+  hideFormErrorSummary(formId);
+}
+
+/** Validates every field in a form, shows the error summary + shakes invalid fields, and focuses the first problem. Returns true only if the whole form is clean. */
+function validateForm(formId) {
+  const ids = formFieldMap[formId] || [];
+  const errors = [];
+  let firstInvalid = null;
+
+  ids.forEach((id) => {
+    const ok = validateField(id, { silent: true });
+    if (!ok) {
+      const hint = document.getElementById(id + 'ValidationHint');
+      errors.push(hint ? hint.textContent : `${validationRules[id].label} is invalid.`);
+      if (!firstInvalid) firstInvalid = id;
+    }
+  });
+
+  // Cross-field rule: a course needs at least one of lecture/lab units > 0.
+  if (formId === 'courseForm') {
+    const lec = parseFloat($('lecUnits').value) || 0;
+    const lab = parseFloat($('labUnits').value) || 0;
+    if (lec <= 0 && lab <= 0) {
+      const msg = 'A course must have at least a lecture or a laboratory unit greater than 0.';
+      ['lecUnits', 'labUnits'].forEach((id) => {
+        $(id).classList.add('field-invalid');
+        $(id).classList.remove('field-valid');
+        const hint = document.getElementById(id + 'ValidationHint');
+        if (hint) { hint.style.display = 'block'; hint.textContent = msg; hint.classList.add('invalid-text'); hint.classList.remove('valid-text'); }
+      });
+      errors.push(msg);
+      if (!firstInvalid) firstInvalid = 'lecUnits';
+    }
+  }
+
+  showFormErrorSummary(formId, errors);
+
+  if (errors.length > 0) {
+    ids.forEach((id) => { const el = $(id); if (el && el.classList.contains('field-invalid')) shakeEl(el); });
+    if (firstInvalid) $(firstInvalid).focus();
+    return false;
+  }
+  return true;
+}
+
+function initRealtimeValidation() {
+  Object.keys(validationRules).forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    ensureFieldWrap(el);
+    ensureValidationHint(el);
+    el.addEventListener('input', () => validateField(id, { silent: true }));
+    el.addEventListener('change', () => validateField(id, { silent: true }));
+    el.addEventListener('blur', () => validateField(id, { silent: false }));
+  });
+
+  // Re-check the lec/lab cross-field rule live as either unit changes, so
+  // the shared error clears the moment the pair becomes valid again.
+  ['lecUnits', 'labUnits'].forEach((id) => {
+    $(id).addEventListener('input', () => {
+      const lec = parseFloat($('lecUnits').value) || 0;
+      const lab = parseFloat($('labUnits').value) || 0;
+      if (lec > 0 || lab > 0) {
+        ['lecUnits', 'labUnits'].forEach((fid) => {
+          const hint = document.getElementById(fid + 'ValidationHint');
+          if (hint && hint.textContent.includes('lecture or a laboratory')) hint.style.display = 'none';
+          $(fid).classList.remove('field-invalid');
+        });
+      }
+    });
+  });
+}
+initRealtimeValidation();
+
 function formSubmit(id, build, endpoint, entity, onSuccess) {
   $(id).addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (!validateForm(id)) return;
     const cfg = formConfig[entity];
     const submitBtn = cfg ? $(cfg.submitBtnId) : e.target.querySelector('[type="submit"]');
     const originalLabel = submitBtn ? submitBtn.innerHTML : null;
@@ -1246,6 +1516,7 @@ $('clearFiltersBtn').addEventListener('click', () => {
 
 $('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (!validateForm('loginForm')) return;
   $('loginError').textContent = '';
   const btn = $('loginSubmitBtn');
   const originalLabel = btn.innerHTML;
@@ -1254,6 +1525,7 @@ $('loginForm').addEventListener('submit', async (e) => {
   try {
     await request('auth.php', { method: 'POST', body: JSON.stringify({ username: $('loginUsername').value, password: $('loginPassword').value }) });
     $('loginForm').reset();
+    clearValidationState('loginForm');
     showApp();
     loadAll().catch((err) => showToast(err.message, 'error'));
   } catch (err) {
