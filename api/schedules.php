@@ -132,13 +132,19 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
         json_response(false, 'Faculty is not assigned/allowed to teach this course. Assign the course to the faculty first in Faculty Courses.', null, 422);
     }
 
-    // Instructor consistency: a course's Lecture and Laboratory components,
-    // for the same section and school year, are the same class split across
-    // two meeting types -- they must be taught by the same instructor. This
-    // is checked regardless of whether Lecture or Laboratory was plotted
-    // first. The frontend already inherits/locks the faculty field to
-    // prevent this in the normal flow; this is the authoritative backend
-    // check (and the fallback for stale UI state / direct API calls).
+    // Instructor consistency + duplicate-component check: a course's Lecture
+    // and Laboratory components, for the same section and school year, are
+    // the same class split across two meeting types -- they must be taught
+    // by the same instructor, and each component may only be plotted once
+    // per course+section+school year (bug/requirement: "do not duplicate
+    // components"). Both checks are done against ALL sibling rows (not just
+    // the first one found), so a course that already has both Lecture and
+    // Laboratory plotted is checked correctly against either. This is
+    // checked regardless of which component was plotted first. The frontend
+    // already inherits/locks the faculty field and hides already-plotted
+    // components in the normal flow; this is the authoritative backend
+    // check (and the fallback for stale UI state / direct API calls / the
+    // batched "subject offering" save).
     $siblingSql = 'SELECT s.id, s.faculty_id, s.component, f.faculty_name
                    FROM schedules s JOIN faculty f ON f.id = s.faculty_id
                    WHERE s.course_id=? AND s.section_id=? AND s.school_year=?';
@@ -146,22 +152,42 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
     if ($ignoreId) { $siblingSql .= ' AND s.id<>?'; $siblingParams[] = $ignoreId; }
     $siblingStmt = $pdo->prepare($siblingSql);
     $siblingStmt->execute($siblingParams);
-    $siblingSchedule = $siblingStmt->fetch();
+    $siblingSchedules = $siblingStmt->fetchAll();
 
-    if ($siblingSchedule && (int)$siblingSchedule['faculty_id'] !== (int)$d['faculty_id']) {
-        json_response(
-            false,
-            $course['course_code'] . ' for ' . $section['program_code'] . ' ' . $section['year_level'] . '-' . $section['section_no'] . ' is already assigned to ' . $siblingSchedule['faculty_name'] . '. Lecture and Laboratory must use the same instructor.',
-            [
-                'conflict_type' => 'instructor_mismatch',
-                'existing_schedule_id' => (int)$siblingSchedule['id'],
-                'existing_faculty_id' => (int)$siblingSchedule['faculty_id'],
-                'existing_faculty_name' => $siblingSchedule['faculty_name'],
-                'existing_component' => $siblingSchedule['component'],
-                'course_code' => $course['course_code'],
-            ],
-            409
-        );
+    $sectionLabel = $section['program_code'] . ' ' . $section['year_level'] . '-' . $section['section_no'];
+
+    foreach ($siblingSchedules as $siblingSchedule) {
+        if ($siblingSchedule['component'] === $d['component']) {
+            json_response(
+                false,
+                $course['course_code'] . ' already has a ' . ucfirst($siblingSchedule['component']) . ' schedule for ' . $sectionLabel . ' in ' . $d['school_year'] . '. Edit the existing schedule instead of creating another one for the same component.',
+                [
+                    'conflict_type' => 'duplicate_component',
+                    'existing_schedule_id' => (int)$siblingSchedule['id'],
+                    'existing_component' => $siblingSchedule['component'],
+                    'course_code' => $course['course_code'],
+                ],
+                409
+            );
+        }
+    }
+
+    foreach ($siblingSchedules as $siblingSchedule) {
+        if ((int)$siblingSchedule['faculty_id'] !== (int)$d['faculty_id']) {
+            json_response(
+                false,
+                $course['course_code'] . ' for ' . $sectionLabel . ' is already assigned to ' . $siblingSchedule['faculty_name'] . '. Lecture and Laboratory must use the same instructor.',
+                [
+                    'conflict_type' => 'instructor_mismatch',
+                    'existing_schedule_id' => (int)$siblingSchedule['id'],
+                    'existing_faculty_id' => (int)$siblingSchedule['faculty_id'],
+                    'existing_faculty_name' => $siblingSchedule['faculty_name'],
+                    'existing_component' => $siblingSchedule['component'],
+                    'course_code' => $course['course_code'],
+                ],
+                409
+            );
+        }
     }
 
     $existingSchedule = null;
@@ -261,6 +287,135 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
     }
 }
 
+function insert_schedule(PDO $pdo, array $d): int {
+    $deliveryMode = $d['set_type'] === 'set_0' ? 'face_to_face' : 'online';
+    $roomId = empty($d['room_id']) ? null : (int)$d['room_id'];
+    $stmt = $pdo->prepare('INSERT INTO schedules(course_id,section_id,faculty_id,room_id,component,delivery_mode,set_type,school_year,day_of_week,start_time,end_time,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)');
+    $stmt->execute([(int)$d['course_id'],(int)$d['section_id'],(int)$d['faculty_id'],$roomId,$d['component'],$deliveryMode,$d['set_type'],$d['school_year'],$d['day_of_week'],$d['start_time'],$d['end_time'],$d['notes'] ?? null]);
+    return (int)$pdo->lastInsertId();
+}
+
+function update_schedule(PDO $pdo, array $d, int $id): void {
+    $deliveryMode = $d['set_type'] === 'set_0' ? 'face_to_face' : 'online';
+    $roomId = empty($d['room_id']) ? null : (int)$d['room_id'];
+    $stmt = $pdo->prepare('UPDATE schedules SET course_id=?, section_id=?, faculty_id=?, room_id=?, component=?, delivery_mode=?, set_type=?, school_year=?, day_of_week=?, start_time=?, end_time=?, notes=? WHERE id=?');
+    $stmt->execute([(int)$d['course_id'],(int)$d['section_id'],(int)$d['faculty_id'],$roomId,$d['component'],$deliveryMode,$d['set_type'],$d['school_year'],$d['day_of_week'],$d['start_time'],$d['end_time'],$d['notes'] ?? null,$id]);
+}
+
+/**
+ * "SUBJECT OFFERING" one-save workflow: plots every required component
+ * (Lecture, and Laboratory when the course has lab units) for one
+ * Course + Section + School Year in a single atomic request instead of the
+ * scheduler having to submit Lecture, then separately hunt down the same
+ * course+section again to submit Laboratory.
+ *
+ * Request body:
+ *   {
+ *     course_id, section_id, faculty_id, school_year,
+ *     components: [
+ *       { component: 'lecture'|'laboratory', room_id?, set_type, day_of_week, start_time, end_time, notes?, id? },
+ *       ...
+ *     ]
+ *   }
+ *
+ * A component entry with an "id" updates that existing schedule row (used
+ * when re-opening the form to fix a component that was already saved
+ * earlier); an entry without "id" creates a new one. Components already
+ * saved for this course+section+school year that are simply left out of the
+ * request are untouched -- the completeness check below only requires that
+ * every REQUIRED component ends up covered by either an existing row or a
+ * row in this request, not that every request re-submits everything.
+ *
+ * The whole batch is validated and written inside one DB transaction: if
+ * any single component fails validation (conflict, instructor mismatch,
+ * duplicate, etc.) NONE of the components in this request are saved, so a
+ * subject offering can never be left half-plotted by a failed save.
+ */
+function save_subject_offering(PDO $pdo, array $body): array {
+    require_fields($body, ['course_id', 'section_id', 'faculty_id', 'school_year']);
+    $components = $body['components'] ?? null;
+    if (!is_array($components) || empty($components)) {
+        json_response(false, 'At least one component (Lecture and/or Laboratory) is required.', null, 422);
+    }
+
+    $courseStmt = $pdo->prepare('SELECT * FROM courses WHERE id=?');
+    $courseStmt->execute([(int)$body['course_id']]);
+    $course = $courseStmt->fetch();
+    if (!$course) json_response(false, 'Course not found.', null, 404);
+
+    $requiredComponents = [];
+    if ((float)$course['lec_units'] > 0) $requiredComponents[] = 'lecture';
+    if ((float)$course['lab_units'] > 0) $requiredComponents[] = 'laboratory';
+    if (empty($requiredComponents)) {
+        json_response(false, 'This course has no lecture or laboratory units to plot.', null, 422);
+    }
+
+    // What's already saved for this exact offering, so a component doesn't
+    // have to be re-submitted every time just to satisfy the completeness
+    // check below (see "EXISTING SCHEDULE DETECTION").
+    $existingStmt = $pdo->prepare('SELECT id, component FROM schedules WHERE course_id=? AND section_id=? AND school_year=?');
+    $existingStmt->execute([(int)$body['course_id'], (int)$body['section_id'], $body['school_year']]);
+    $existingComponents = array_column($existingStmt->fetchAll(), 'component', 'id');
+
+    $submittedComponents = [];
+    foreach ($components as $c) {
+        if (!is_array($c) || empty($c['component'])) {
+            json_response(false, 'Each component entry needs a component type (lecture or laboratory).', null, 422);
+        }
+        if (in_array($c['component'], $submittedComponents, true)) {
+            json_response(false, 'Duplicate ' . ucfirst($c['component']) . ' entry in the same save -- only one schedule per component is allowed.', null, 422);
+        }
+        $submittedComponents[] = $c['component'];
+    }
+
+    $coveredComponents = array_unique(array_merge(array_values($existingComponents), $submittedComponents));
+    $missing = array_diff($requiredComponents, $coveredComponents);
+    if (!empty($missing)) {
+        $missingLabel = implode(' and ', array_map('ucfirst', $missing));
+        json_response(
+            false,
+            $course['course_code'] . ' requires both Lecture and Laboratory schedules. Please complete the ' . $missingLabel . ' schedule before saving.',
+            ['conflict_type' => 'incomplete_offering', 'missing_components' => array_values($missing)],
+            422
+        );
+    }
+
+    $pdo->beginTransaction();
+    $results = [];
+    foreach ($components as $c) {
+        $d = [
+            'course_id' => (int)$body['course_id'],
+            'section_id' => (int)$body['section_id'],
+            'faculty_id' => (int)$body['faculty_id'],
+            'school_year' => $body['school_year'],
+            'component' => $c['component'],
+            'set_type' => $c['set_type'] ?? 'set_0',
+            'day_of_week' => $c['day_of_week'] ?? '',
+            'start_time' => $c['start_time'] ?? '',
+            'end_time' => $c['end_time'] ?? '',
+            'room_id' => $c['room_id'] ?? null,
+            'notes' => $c['notes'] ?? null,
+        ];
+        $componentId = isset($c['id']) && $c['id'] ? (int)$c['id'] : null;
+        // validate_schedule() calls json_response()+exit() on any failure,
+        // which ends the request without an explicit rollback -- the
+        // uncommitted transaction is discarded automatically when the PDO
+        // connection closes at process exit, so no partial offering is ever
+        // left committed.
+        validate_schedule($pdo, $d, $componentId);
+        if ($componentId) {
+            update_schedule($pdo, $d, $componentId);
+            $results[] = ['id' => $componentId, 'component' => $c['component'], 'action' => 'updated'];
+        } else {
+            $newId = insert_schedule($pdo, $d);
+            $results[] = ['id' => $newId, 'component' => $c['component'], 'action' => 'created'];
+        }
+    }
+    $pdo->commit();
+
+    return ['course_code' => $course['course_code'], 'components' => $results];
+}
+
 try {
     $pdo = db();
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
@@ -274,14 +429,17 @@ try {
         json_response(true, 'Schedules loaded', $rows);
     }
 
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_GET['mode'] ?? '') === 'offering') {
+        $body = input_json();
+        $result = save_subject_offering($pdo, $body);
+        json_response(true, 'Subject offering saved successfully', $result, 201);
+    }
+
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $d = input_json();
         validate_schedule($pdo, $d);
-        $deliveryMode = $d['set_type'] === 'set_0' ? 'face_to_face' : 'online';
-        $roomId = empty($d['room_id']) ? null : (int)$d['room_id'];
-        $stmt = $pdo->prepare('INSERT INTO schedules(course_id,section_id,faculty_id,room_id,component,delivery_mode,set_type,school_year,day_of_week,start_time,end_time,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)');
-        $stmt->execute([(int)$d['course_id'],(int)$d['section_id'],(int)$d['faculty_id'],$roomId,$d['component'],$deliveryMode,$d['set_type'],$d['school_year'],$d['day_of_week'],$d['start_time'],$d['end_time'],$d['notes'] ?? null]);
-        json_response(true, 'Schedule plotted successfully', ['id'=>$pdo->lastInsertId()], 201);
+        $newId = insert_schedule($pdo, $d);
+        json_response(true, 'Schedule plotted successfully', ['id' => $newId], 201);
     }
 
     if ($_SERVER['REQUEST_METHOD'] === 'PUT') {
@@ -294,10 +452,7 @@ try {
         if (!$existingStmt->fetch()) json_response(false, 'Schedule not found.', null, 404);
 
         validate_schedule($pdo, $d, $id);
-        $deliveryMode = $d['set_type'] === 'set_0' ? 'face_to_face' : 'online';
-        $roomId = empty($d['room_id']) ? null : (int)$d['room_id'];
-        $stmt = $pdo->prepare('UPDATE schedules SET course_id=?, section_id=?, faculty_id=?, room_id=?, component=?, delivery_mode=?, set_type=?, school_year=?, day_of_week=?, start_time=?, end_time=?, notes=? WHERE id=?');
-        $stmt->execute([(int)$d['course_id'],(int)$d['section_id'],(int)$d['faculty_id'],$roomId,$d['component'],$deliveryMode,$d['set_type'],$d['school_year'],$d['day_of_week'],$d['start_time'],$d['end_time'],$d['notes'] ?? null,$id]);
+        update_schedule($pdo, $d, $id);
         json_response(true, 'Schedule updated successfully');
     }
 

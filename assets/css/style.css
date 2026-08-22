@@ -893,6 +893,57 @@ select.faculty-locked:disabled {
   opacity: 1;
 }
 
+/* Subject Offering plotting form: one block per component (Lecture /
+   Laboratory). A block is either a locked, read-only summary of an
+   already-saved schedule (with an Edit button to unlock it) or an open set
+   of editable fields for a component that still needs to be plotted. */
+.component-block {
+  grid-column: 1 / -1;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-lg);
+  margin-top: var(--spacing-sm);
+  background: var(--bg-primary);
+}
+
+.component-block-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.component-block-title {
+  font-size: 14px;
+}
+
+.component-status-icon {
+  font-size: 10px;
+  color: var(--text-light);
+}
+
+.component-status-icon.done { color: var(--success); }
+.component-status-icon.pending { color: var(--text-light); }
+.component-status-icon.editing { color: var(--accent); }
+
+.component-summary {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.component-edit-btn { margin-left: auto; }
+
+.component-fields {
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-lg);
+  border-top: 1px dashed var(--border);
+}
+
+.component-fields.hidden { display: none; }
+
 /* Momentary highlight on the schedules table row a conflict/"View Existing
    Schedule" link jumps to. */
 @keyframes rowHighlightFlash {

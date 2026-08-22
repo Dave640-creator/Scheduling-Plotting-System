@@ -143,7 +143,13 @@ window.closeConfirm = closeConfirm;
    existing schedule -- just warns, and offers a way to go look at it.
    ===================================================== */
 
-function showInstructorConflictModal(message, existingScheduleId) {
+const CONFLICT_MODAL_TITLES = {
+  instructor_mismatch: '<i class="fas fa-user-lock"></i> Instructor Conflict',
+  duplicate_component: '<i class="fas fa-copy"></i> Component Already Scheduled',
+};
+
+function showInstructorConflictModal(message, existingScheduleId, conflictType = 'instructor_mismatch') {
+  $('instructorConflictTitle').innerHTML = CONFLICT_MODAL_TITLES[conflictType] || CONFLICT_MODAL_TITLES.instructor_mismatch;
   $('instructorConflictMessage').innerHTML = escapeHtml(message);
   const viewBtn = $('instructorConflictViewBtn');
   viewBtn.onclick = () => viewExistingSchedule(existingScheduleId);
@@ -470,15 +476,57 @@ function getSelectedCourse() {
   return state.courses.find((c) => Number(c.id) === courseId) || null;
 }
 
-function getSelectedComponent() {
-  return $('scheduleComponent').value;
+/**
+ * The two possible schedule components. A course requires Lecture only
+ * (minor/lecture-only subjects) or Lecture + Laboratory (major subjects,
+ * determined by the course's own lec_units/lab_units -- never hard-coded).
+ */
+const COMPONENT_TYPES = ['lecture', 'laboratory'];
+
+function courseRequiresComponent(course, component) {
+  if (!course) return false;
+  return component === 'lecture' ? Number(course.lec_units) > 0 : Number(course.lab_units) > 0;
+}
+
+/** Finds the already-saved schedule row (if any) for one component of the current Course + Section + School Year "subject offering". */
+function findExistingComponentSchedule(courseId, sectionId, schoolYear, component) {
+  if (!courseId || !sectionId || !schoolYear) return null;
+  return state.schedules.find((s) =>
+    Number(s.course_id) === Number(courseId) &&
+    Number(s.section_id) === Number(sectionId) &&
+    s.school_year === schoolYear &&
+    s.component === component
+  ) || null;
+}
+
+/** true once the scheduler has clicked "Edit" on an already-saved component, unlocking its fields for this session. Reset whenever the Course/Section/School Year selection changes. */
+const componentUnlocked = { lecture: false, laboratory: false };
+const componentHasConflict = { lecture: false, laboratory: false };
+
+/** The id of the existing schedule row backing this component right now, if any (used as the PUT target and as the live-conflict "ignore self" id). */
+function existingComponentId(component) {
+  const course = getSelectedCourse();
+  if (!course) return null;
+  const existing = findExistingComponentSchedule(course.id, $('scheduleSection').value, $('scheduleSchoolYear').value, component);
+  return existing ? Number(existing.id) : null;
+}
+
+/** ids of schedule rows currently open for editing in this form, so the faculty-inheritance lookup doesn't treat a component as its own "sibling". */
+function currentEditingScheduleIds() {
+  return COMPONENT_TYPES.map((c) => (componentUnlocked[c] ? existingComponentId(c) : null)).filter((id) => id !== null);
 }
 
 function getQualifiedFacultyForCourse(courseId) {
   const assignedFacultyIds = state.assignments
     .filter((a) => Number(a.course_id) === Number(courseId))
     .map((a) => Number(a.faculty_id));
-  const editingFacultyId = editing.schedules ? Number((state.schedules.find((s) => Number(s.id) === Number(editing.schedules)) || {}).faculty_id) : null;
+  const course = state.courses.find((c) => Number(c.id) === Number(courseId));
+  const sectionId = $('scheduleSection').value;
+  const schoolYear = $('scheduleSchoolYear').value;
+  const anyExisting = course
+    ? COMPONENT_TYPES.map((c) => findExistingComponentSchedule(course.id, sectionId, schoolYear, c)).find(Boolean)
+    : null;
+  const editingFacultyId = anyExisting ? Number(anyExisting.faculty_id) : null;
   return state.faculty.filter((f) => assignedFacultyIds.includes(Number(f.id)) && (Number(f.is_active) === 1 || Number(f.id) === editingFacultyId));
 }
 
@@ -486,9 +534,8 @@ function renderSelects() {
   fillCourseSelectGrouped('scheduleCourse', state.courses);
   fillCourseSelectGrouped('assignCourse', state.courses);
   fillSelect('assignFaculty', state.faculty, (f) => f.faculty_name);
-  updateComponentOptions();
+  updateComponentBlocks();
   updateFacultyOptions();
-  updateRoomOptions();
   updateSectionOptions();
 }
 
@@ -667,49 +714,125 @@ document.querySelectorAll('.timetable-tab').forEach((btn) => {
   $(id).addEventListener('change', renderTimetable);
 });
 
-function updateComponentOptions() {
-  const course = getSelectedCourse();
-  const componentSelect = $('scheduleComponent');
-  const hint = $('componentHint');
+/** Enables/disables and shows/hides one component's editable field block. Disabled fields are skipped by both native and custom form validation and left out of the save payload. */
+function setComponentFieldsEnabled(component, enabled) {
+  const wrap = $('componentFields_' + component);
+  wrap.classList.toggle('hidden', !enabled);
+  wrap.querySelectorAll('select, input').forEach((el) => { el.disabled = !enabled; });
+  if (enabled) {
+    // Re-apply the auto-computed End Time lock, which setComponentFieldsEnabled(true) above just cleared.
+    $('endTime_' + component).disabled = $('scheduleDuration_' + component).value !== 'custom';
+  }
+}
 
-  if (!course) {
-    componentSelect.innerHTML = '<option value="">Select course first</option>';
-    componentSelect.disabled = true;
-    componentSelect.title = 'Select a course first.';
-    if (hint) hint.textContent = '🔒 Select a course first to see its lecture/laboratory components.';
+function componentSummaryText(schedule) {
+  if (!schedule) return '';
+  const fac = state.faculty.find((f) => Number(f.id) === Number(schedule.faculty_id));
+  const room = schedule.room_name || 'Online / No room';
+  return `${formatDayPattern(schedule.day_of_week)} ${schedule.start_time.slice(0, 5)}-${schedule.end_time.slice(0, 5)} \u00b7 ${room}` + (fac ? ` \u00b7 ${fac.faculty_name}` : '');
+}
+
+function hasEditableComponent() {
+  return COMPONENT_TYPES.some((c) => {
+    const block = $('componentBlock_' + c);
+    if (block.classList.contains('hidden')) return false;
+    return !$('componentFields_' + c).classList.contains('hidden');
+  });
+}
+
+function refreshSubmitButtonState() {
+  const submitBtn = $('scheduleSubmitBtn');
+  if (!hasEditableComponent()) {
+    submitBtn.disabled = true;
+    submitBtn.title = 'All required components are already scheduled. Click Edit on a component above to make changes.';
     return;
   }
+  const blocked = COMPONENT_TYPES.some((c) => componentHasConflict[c]);
+  submitBtn.disabled = blocked;
+  submitBtn.title = blocked ? 'Resolve the conflict(s) shown above before saving.' : '';
+}
 
-  const options = [];
-  if (Number(course.lec_units) > 0) options.push('<option value="lecture">Lecture</option>');
-  if (Number(course.lab_units) > 0) options.push('<option value="laboratory">Laboratory</option>');
+/**
+ * Renders the Components panel: for the current Course, shows only the
+ * required components (Lecture, and Laboratory when the course has lab
+ * units), each either as a locked read-only summary (already saved -- click
+ * Edit to change it) or as an open, editable field set (still needs to be
+ * plotted, or was just unlocked for editing). Also updates the
+ * "N of M components scheduled" status line.
+ */
+function updateComponentBlocks() {
+  const course = getSelectedCourse();
+  const sectionId = $('scheduleSection').value;
+  const schoolYear = $('scheduleSchoolYear').value;
 
-  componentSelect.innerHTML = options.length
-    ? options.join('')
-    : '<option value="">No plottable component</option>';
-  componentSelect.disabled = !options.length;
-  componentSelect.title = options.length ? '' : 'This course has no lecture or laboratory units to plot.';
-  if (hint) {
-    hint.textContent = options.length
-      ? `✓ ${options.length} component${options.length === 1 ? '' : 's'} available for this course.`
-      : '⚠ This course has no lecture or laboratory units to plot.';
+  let requiredCount = 0;
+  let scheduledCount = 0;
+
+  COMPONENT_TYPES.forEach((c) => {
+    const block = $('componentBlock_' + c);
+    const required = courseRequiresComponent(course, c);
+
+    if (!required) {
+      block.classList.add('hidden');
+      setComponentFieldsEnabled(c, false);
+      componentUnlocked[c] = false;
+      return;
+    }
+
+    block.classList.remove('hidden');
+    requiredCount++;
+
+    const existing = findExistingComponentSchedule(course.id, sectionId, schoolYear, c);
+    const editable = !existing || componentUnlocked[c];
+    const icon = $('componentStatusIcon_' + c);
+    const summaryEl = $('componentSummary_' + c);
+    const editBtn = $('componentEditBtn_' + c);
+
+    if (existing) scheduledCount++;
+
+    if (editable) {
+      setComponentFieldsEnabled(c, true);
+      summaryEl.textContent = '';
+      editBtn.classList.add('hidden');
+      icon.innerHTML = existing ? '<i class="fas fa-pen"></i>' : '<i class="fas fa-circle"></i>';
+      icon.className = 'component-status-icon ' + (existing ? 'editing' : 'pending');
+    } else {
+      setComponentFieldsEnabled(c, false);
+      summaryEl.textContent = componentSummaryText(existing);
+      editBtn.classList.remove('hidden');
+      icon.innerHTML = '<i class="fas fa-circle-check"></i>';
+      icon.className = 'component-status-icon done';
+    }
+
+    updateRoomOptions(c);
+  });
+
+  const statusEl = $('componentsStatus');
+  if (!course || !sectionId || !schoolYear) {
+    statusEl.textContent = '\ud83d\udd12 Select a course, section, and school year first to see the required components.';
+  } else if (requiredCount === 0) {
+    statusEl.textContent = '\u26a0 This course has no lecture or laboratory units to plot.';
+  } else {
+    statusEl.textContent = (scheduledCount === requiredCount ? '\u2713 ' : '') + `${scheduledCount} of ${requiredCount} component${requiredCount === 1 ? '' : 's'} scheduled.`;
   }
+
+  refreshSubmitButtonState();
 }
 
 /**
  * Finds the OTHER component's schedule (Lecture <-> Laboratory) already
  * plotted for the same course+section+school year, if any -- regardless of
- * whether Lecture or Laboratory was plotted first. Excludes the row
- * currently being edited so editing a schedule doesn't "conflict with
+ * whether Lecture or Laboratory was plotted first. Excludes the rows
+ * currently unlocked for editing so a component doesn't "conflict with
  * itself". Mirrors the sibling lookup in api/schedules.php.
  */
-function getSiblingScheduleForCourseSection(courseId, sectionId, schoolYear, ignoreId) {
+function getSiblingScheduleForCourseSection(courseId, sectionId, schoolYear, ignoreIds = []) {
   if (!courseId || !sectionId || !schoolYear) return null;
   return state.schedules.find((s) =>
     Number(s.course_id) === Number(courseId) &&
     Number(s.section_id) === Number(sectionId) &&
     s.school_year === schoolYear &&
-    (!ignoreId || Number(s.id) !== Number(ignoreId))
+    !ignoreIds.includes(Number(s.id))
   ) || null;
 }
 
@@ -727,7 +850,7 @@ function updateFacultyOptions() {
     $('scheduleFaculty').innerHTML = '<option value="">Select course first</option>';
     $('scheduleFaculty').disabled = true;
     $('scheduleFaculty').title = 'Select a course first.';
-    if (hint) hint.textContent = '🔒 Select a course first to choose an eligible faculty.';
+    if (hint) hint.textContent = '\ud83d\udd12 Select a course first to choose an eligible faculty.';
     toggleFacultyLockBadge(false);
     return;
   }
@@ -737,7 +860,7 @@ function updateFacultyOptions() {
     $('scheduleFaculty').innerHTML = '<option value="">No assigned faculty for this course</option>';
     $('scheduleFaculty').disabled = true;
     $('scheduleFaculty').title = 'Assign a faculty member to this course first (Faculty Course Assignments).';
-    if (hint) hint.textContent = '⚠ No faculty assigned to this course yet -- add one in Faculty Course Assignments first.';
+    if (hint) hint.textContent = '\u26a0 No faculty assigned to this course yet -- add one in Faculty Course Assignments first.';
     toggleFacultyLockBadge(false);
     return;
   }
@@ -748,7 +871,7 @@ function updateFacultyOptions() {
   // assign the second component to someone else.
   const sectionId = $('scheduleSection').value;
   const schoolYear = $('scheduleSchoolYear').value;
-  const sibling = getSiblingScheduleForCourseSection(course.id, sectionId, schoolYear, editing.schedules);
+  const sibling = getSiblingScheduleForCourseSection(course.id, sectionId, schoolYear, currentEditingScheduleIds());
   const inheritedFacultyId = sibling ? Number(sibling.faculty_id) : null;
   const inheritedIsQualified = inheritedFacultyId && qualifiedFaculty.some((f) => Number(f.id) === inheritedFacultyId);
 
@@ -759,27 +882,31 @@ function updateFacultyOptions() {
     $('scheduleFaculty').title = `Instructor inherited from the existing ${course.course_code} schedule for this section -- Lecture and Laboratory must share the same instructor.`;
     const section = state.sections.find((s) => Number(s.id) === Number(sectionId));
     const sectionLabel = section ? `${section.program_code} ${section.year_level}-${section.section_no}` : 'this section';
-    if (hint) hint.innerHTML = `🔒 Instructor inherited from existing <strong>${escapeHtml(course.course_code)}</strong> schedule for <strong>${escapeHtml(sectionLabel)}</strong> (${escapeHtml(sibling.component)}).`;
+    if (hint) hint.innerHTML = `\ud83d\udd12 Instructor inherited from existing <strong>${escapeHtml(course.course_code)}</strong> schedule for <strong>${escapeHtml(sectionLabel)}</strong> (${escapeHtml(sibling.component)}).`;
     toggleFacultyLockBadge(true);
     return;
   }
 
+  const previousValue = $('scheduleFaculty').value;
   fillSelect('scheduleFaculty', qualifiedFaculty, (f) => f.faculty_name + (Number(f.is_active) === 0 ? ' (Inactive)' : ''), 'id', 'Select assigned faculty');
   $('scheduleFaculty').disabled = false;
   $('scheduleFaculty').title = '';
+  if (previousValue && qualifiedFaculty.some((f) => String(f.id) === previousValue)) {
+    $('scheduleFaculty').value = previousValue;
+  }
   toggleFacultyLockBadge(false);
-  if (hint) hint.textContent = `✓ ${qualifiedFaculty.length} eligible faculty member${qualifiedFaculty.length === 1 ? '' : 's'} found.`;
+  if (hint) hint.textContent = `\u2713 ${qualifiedFaculty.length} eligible faculty member${qualifiedFaculty.length === 1 ? '' : 's'} found.`;
 }
 
-function updateRoomOptions() {
-  const component = getSelectedComponent();
-  const editingRoomId = editing.schedules ? Number((state.schedules.find((s) => Number(s.id) === Number(editing.schedules)) || {}).room_id) : null;
+function updateRoomOptions(component) {
+  const editingId = existingComponentId(component);
+  const editingRoomId = editingId ? Number((state.schedules.find((s) => Number(s.id) === editingId) || {}).room_id) : null;
   let roomsList = state.rooms.filter((r) => Number(r.is_active) === 1 || Number(r.id) === editingRoomId);
 
   if (component === 'lecture') roomsList = roomsList.filter((r) => r.room_type === 'lecture');
   if (component === 'laboratory') roomsList = roomsList.filter((r) => r.room_type === 'laboratory');
 
-  fillSelect('scheduleRoom', roomsList, (r) => `${r.room_name} - ${r.room_type} (${r.capacity})` + (Number(r.is_active) === 0 ? ' (Inactive)' : ''), 'id', 'No room / hybrid');
+  fillSelect('scheduleRoom_' + component, roomsList, (r) => `${r.room_name} - ${r.room_type} (${r.capacity})` + (Number(r.is_active) === 0 ? ' (Inactive)' : ''), 'id', 'No room / hybrid');
 }
 
 const SET_TYPE_HINTS = {
@@ -788,12 +915,12 @@ const SET_TYPE_HINTS = {
   set_2: 'Hybrid Rotation B. Alternates week-to-week with Rotation A labs of major courses (won\'t conflict with those), but still conflicts with any lecture or minor-course schedule, since those meet every week.',
 };
 
-function updateRoomRequirement() {
-  const isSet0 = $('setType').value === 'set_0';
-  $('roomRequiredMark').classList.toggle('hidden', !isSet0);
-  $('roomRequiredHint').classList.toggle('hidden', !isSet0);
-  $('scheduleRoom').required = isSet0;
-  $('setTypeHint').textContent = SET_TYPE_HINTS[$('setType').value] || '';
+function updateRoomRequirement(component) {
+  const isSet0 = $('setType_' + component).value === 'set_0';
+  $('roomRequiredMark_' + component).classList.toggle('hidden', !isSet0);
+  $('roomRequiredHint_' + component).classList.toggle('hidden', !isSet0);
+  $('scheduleRoom_' + component).required = isSet0;
+  $('setTypeHint_' + component).textContent = SET_TYPE_HINTS[$('setType_' + component).value] || '';
 }
 
 function updateSectionOptions() {
@@ -921,11 +1048,11 @@ function timesOverlap(start1, end1, start2, end2) {
   return !(timeStrToMinutes(end1) <= timeStrToMinutes(start2) || timeStrToMinutes(start1) >= timeStrToMinutes(end2));
 }
 
-function getDurationMinutes() {
-  const val = $('scheduleDuration').value;
+function getDurationMinutes(component) {
+  const val = $('scheduleDuration_' + component).value;
   if (val === 'custom') {
-    const s = $('startTime').value;
-    const e = $('endTime').value;
+    const s = $('startTime_' + component).value;
+    const e = $('endTime_' + component).value;
     if (!s || !e) return null;
     const diff = timeStrToMinutes(e) - timeStrToMinutes(s);
     return diff > 0 ? diff : null;
@@ -933,11 +1060,11 @@ function getDurationMinutes() {
   return Number(val);
 }
 
-function updateEndTimeFromDuration() {
-  const durationVal = $('scheduleDuration').value;
-  const endTimeSelect = $('endTime');
-  const autoTag = $('endTimeAutoTag');
-  $('customDurationHint').classList.toggle('hidden', durationVal !== 'custom');
+function updateEndTimeFromDuration(component) {
+  const durationVal = $('scheduleDuration_' + component).value;
+  const endTimeSelect = $('endTime_' + component);
+  const autoTag = $('endTimeAutoTag_' + component);
+  $('customDurationHint_' + component).classList.toggle('hidden', durationVal !== 'custom');
 
   if (durationVal === 'custom') {
     endTimeSelect.disabled = false;
@@ -947,7 +1074,7 @@ function updateEndTimeFromDuration() {
 
   endTimeSelect.disabled = true;
   autoTag.classList.remove('hidden');
-  const start = $('startTime').value;
+  const start = $('startTime_' + component).value;
   if (!start) return;
   const maxMin = 23 * 60 + 30;
   const targetMin = Math.min(timeStrToMinutes(start) + Number(durationVal), maxMin);
@@ -1023,72 +1150,75 @@ function suggestAlternativeTimes(dayPattern, durationMin, ctx, maxSuggestions = 
   return picked.map(({ start, end }) => ({ start, end }));
 }
 
-function renderConflictPreview(conflicts, suggestions) {
-  const el = $('conflictPreview');
-  const submitBtn = $('scheduleSubmitBtn');
+function renderConflictPreview(component, conflicts, suggestions) {
+  const el = $('conflictPreview_' + component);
 
   if (conflicts === null) {
     el.innerHTML = '';
-    submitBtn.disabled = false;
+    componentHasConflict[component] = false;
+    refreshSubmitButtonState();
     return;
   }
 
   if (!conflicts.length) {
     el.innerHTML = '<div class="preview-status available"><i class="fas fa-circle-check"></i> Available - no conflicts detected</div>';
-    submitBtn.disabled = false;
+    componentHasConflict[component] = false;
+    refreshSubmitButtonState();
     return;
   }
 
-  submitBtn.disabled = true;
+  componentHasConflict[component] = true;
   const listHtml = conflicts.map((c) => `<div class="preview-conflict-item"><i class="fas fa-circle-exclamation"></i> <strong>${escapeHtml(c.type)} conflict:</strong>&nbsp;${escapeHtml(c.name)} (${escapeHtml(c.timeLabel)})</div>`).join('');
   const suggestionsHtml = suggestions.length
-    ? `<div class="preview-suggestions"><span class="suggestion-label">Suggested:</span> ${suggestions.map((s) => `<button type="button" class="suggestion-chip" onclick="applySuggestedTime('${s.start}','${s.end}')"><i class="fas fa-check"></i> ${s.start}-${s.end}</button>`).join(' ')}</div>`
+    ? `<div class="preview-suggestions"><span class="suggestion-label">Suggested:</span> ${suggestions.map((s) => `<button type="button" class="suggestion-chip" onclick="applySuggestedTime('${component}','${s.start}','${s.end}')"><i class="fas fa-check"></i> ${s.start}-${s.end}</button>`).join(' ')}</div>`
     : '';
 
   el.innerHTML = `<div class="preview-status conflict"><i class="fas fa-circle-exclamation"></i> Conflict Detected</div><div class="preview-conflict-list">${listHtml}</div>${suggestionsHtml}`;
+  refreshSubmitButtonState();
 }
 
-function getEffectiveDayPattern() {
-  const preset = $('dayOfWeek').value;
+function getEffectiveDayPattern(component) {
+  const preset = $('dayOfWeek_' + component).value;
   if (preset !== 'Custom') return preset;
-  const checked = [...document.querySelectorAll('#customDaysRow input[type="checkbox"]:checked')].map((cb) => cb.value);
+  const checked = [...document.querySelectorAll('#customDaysRow_' + component + ' input[type="checkbox"]:checked')].map((cb) => cb.value);
   return checked.join(',');
 }
 
-function checkLiveConflict() {
-  const dayPattern = getEffectiveDayPattern();
-  const start = $('startTime').value;
-  const end = $('endTime').value;
+function checkLiveConflict(component) {
+  const dayPattern = getEffectiveDayPattern(component);
+  const start = $('startTime_' + component).value;
+  const end = $('endTime_' + component).value;
+  const course = getSelectedCourse();
   const ctx = {
     sectionId: $('scheduleSection').value,
     facultyId: $('scheduleFaculty').value,
-    roomId: $('scheduleRoom').value,
-    ignoreId: editing.schedules,
-    setType: $('setType').value,
-    component: $('scheduleComponent').value,
-    category: (getSelectedCourse() || {}).category,
+    roomId: $('scheduleRoom_' + component).value,
+    ignoreId: existingComponentId(component),
+    setType: $('setType_' + component).value,
+    component,
+    category: (course || {}).category,
     schoolYear: $('scheduleSchoolYear').value,
-    semesterType: (getSelectedCourse() || {}).semester_type,
+    semesterType: (course || {}).semester_type,
   };
 
   if (!dayPattern || !start || !end) {
-    renderConflictPreview(null);
+    renderConflictPreview(component, null);
     return;
   }
 
   const conflicts = findScheduleConflicts(dayPattern, start, end, ctx);
-  const suggestions = conflicts.length ? suggestAlternativeTimes(dayPattern, getDurationMinutes(), ctx, 2, start) : [];
-  renderConflictPreview(conflicts, suggestions);
+  const suggestions = conflicts.length ? suggestAlternativeTimes(dayPattern, getDurationMinutes(component), ctx, 2, start) : [];
+  renderConflictPreview(component, conflicts, suggestions);
 }
 
-function applySuggestedTime(start, end) {
-  $('startTime').value = start;
-  if ($('scheduleDuration').value === 'custom') {
-    $('endTime').value = end;
+function applySuggestedTime(component, start, end) {
+  $('startTime_' + component).value = start;
+  if ($('scheduleDuration_' + component).value === 'custom') {
+    $('endTime_' + component).value = end;
   } else {
-    updateEndTimeFromDuration();
+    updateEndTimeFromDuration(component);
   }
-  checkLiveConflict();
+  checkLiveConflict(component);
 }
 window.applySuggestedTime = applySuggestedTime;
 
@@ -1250,12 +1380,10 @@ function cancelEdit(entity) {
   if (cfg.modalTitleId) $(cfg.modalTitleId).textContent = cfg.addTitle;
   if (entity === 'schedules') {
     $('scheduleSchoolYear').value = suggestedSchoolYear();
-    $('scheduleDuration').value = '60';
-    $('customDaysRow').classList.add('hidden');
-    updateComponentOptions(); updateFacultyOptions(); updateRoomOptions();
-    updateRoomRequirement();
-    updateEndTimeFromDuration();
-    checkLiveConflict();
+    COMPONENT_TYPES.forEach((c) => { componentUnlocked[c] = false; resetComponentFields(c); });
+    updateSectionOptions();
+    updateComponentBlocks();
+    updateFacultyOptions();
   }
 }
 window.cancelEdit = cancelEdit;
@@ -1326,48 +1454,97 @@ function ensureTimeOption(selectId, value, label) {
 
 const DAY_PRESET_VALUES = ['MWF', 'TTH', 'MW', 'TF', 'Saturday'];
 
-function setDayPatternUI(dayOfWeek) {
+function setDayPatternUI(component, dayOfWeek) {
+  const daySelect = $('dayOfWeek_' + component);
+  const customRow = $('customDaysRow_' + component);
   if (DAY_PRESET_VALUES.includes(dayOfWeek)) {
-    $('dayOfWeek').value = dayOfWeek;
-    $('customDaysRow').classList.add('hidden');
-    document.querySelectorAll('#customDaysRow input[type="checkbox"]').forEach((cb) => { cb.checked = false; });
+    daySelect.value = dayOfWeek;
+    customRow.classList.add('hidden');
+    customRow.querySelectorAll('input[type="checkbox"]').forEach((cb) => { cb.checked = false; });
     return;
   }
-  $('dayOfWeek').value = 'Custom';
-  $('customDaysRow').classList.remove('hidden');
+  daySelect.value = 'Custom';
+  customRow.classList.remove('hidden');
   const days = scheduleDaysFor(dayOfWeek);
-  document.querySelectorAll('#customDaysRow input[type="checkbox"]').forEach((cb) => {
+  customRow.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
     cb.checked = days.includes(cb.value);
   });
 }
 
+/** Resets one component's field block to its blank/default state -- used whenever the Course/Section/School Year selection changes, since a component that needs to be freshly created starts from scratch every time. */
+function resetComponentFields(component) {
+  $('setType_' + component).value = 'set_0';
+  setDayPatternUI(component, 'MWF');
+  $('scheduleDuration_' + component).value = component === 'laboratory' ? '180' : '60';
+  $('notes_' + component).value = '';
+  $('startTime_' + component).value = '';
+  updateEndTimeFromDuration(component);
+  updateRoomRequirement(component);
+  $('conflictPreview_' + component).innerHTML = '';
+  componentHasConflict[component] = false;
+}
+
+/** Fills one component's field block with an already-saved schedule row's values, for when the scheduler clicks Edit on it. */
+function prefillComponentFields(component, schedule) {
+  $('setType_' + component).value = schedule.set_type;
+  setDayPatternUI(component, schedule.day_of_week);
+  $('scheduleDuration_' + component).value = 'custom';
+  updateEndTimeFromDuration(component);
+  const startVal = schedule.start_time.slice(0, 5);
+  const endVal = schedule.end_time.slice(0, 5);
+  ensureTimeOption('startTime_' + component, startVal);
+  ensureTimeOption('endTime_' + component, endVal);
+  $('startTime_' + component).value = startVal;
+  $('endTime_' + component).value = endVal;
+  $('notes_' + component).value = schedule.notes || '';
+}
+
+/** Unlocks an already-saved component's fields for editing (the "Edit" button on a locked/summary component block). */
+function unlockComponentBlock(component) {
+  componentUnlocked[component] = true;
+  const course = getSelectedCourse();
+  const sectionId = $('scheduleSection').value;
+  const schoolYear = $('scheduleSchoolYear').value;
+  const existing = course ? findExistingComponentSchedule(course.id, sectionId, schoolYear, component) : null;
+
+  updateComponentBlocks();
+  updateFacultyOptions();
+
+  if (existing) {
+    prefillComponentFields(component, existing);
+    if (!$('scheduleFaculty').disabled) {
+      const stillQualified = [...$('scheduleFaculty').options].some((o) => o.value === String(existing.faculty_id));
+      if (stillQualified) $('scheduleFaculty').value = String(existing.faculty_id);
+    }
+    updateRoomOptions(component);
+    $('scheduleRoom_' + component).value = existing.room_id || '';
+    updateRoomRequirement(component);
+    checkLiveConflict(component);
+  }
+  markFormDirty('scheduleForm');
+  startEdit('schedules', editing.schedules || (existing ? existing.id : true));
+}
+window.unlockComponentBlock = unlockComponentBlock;
+
+/**
+ * Loads a whole subject offering (Course + Section + School Year) into the
+ * Plot Schedule form for editing, unlocking the one component the scheduler
+ * clicked Edit on from the Schedules table. Any sibling component keeps
+ * showing as its locked, read-only summary unless it's separately unlocked.
+ */
 function editSchedule(id) {
   const s = state.schedules.find((x) => Number(x.id) === id);
   if (!s) return;
-  editing.schedules = id; // set before updateSectionOptions() so it keeps this schedule's section selectable even if it no longer matches the course's year level
+  editing.schedules = id; // UI flag only (Cancel button + "Update" label) -- the actual save always goes through the batched subject-offering endpoint
   $('scheduleSchoolYear').value = s.school_year;
   $('scheduleCourse').value = s.course_id;
-  updateComponentOptions();
-  $('scheduleComponent').value = s.component;
-  updateRoomOptions();
   updateSectionOptions();
   $('scheduleSection').value = s.section_id;
-  updateFacultyOptions(); // course + section + school year are all set now, so the inherited-faculty lock (if any) resolves against the correct sibling schedule
-  if (!$('scheduleFaculty').disabled) $('scheduleFaculty').value = s.faculty_id;
-  $('scheduleRoom').value = s.room_id || '';
-  $('setType').value = s.set_type;
-  updateRoomRequirement();
-  setDayPatternUI(s.day_of_week);
-  $('scheduleDuration').value = 'custom';
-  updateEndTimeFromDuration();
-  const startVal = s.start_time.slice(0, 5);
-  const endVal = s.end_time.slice(0, 5);
-  ensureTimeOption('startTime', startVal);
-  ensureTimeOption('endTime', endVal);
-  $('startTime').value = startVal;
-  $('endTime').value = endVal;
-  $('notes').value = s.notes || '';
-  checkLiveConflict();
+  COMPONENT_TYPES.forEach((c) => { componentUnlocked[c] = false; resetComponentFields(c); });
+  updateComponentBlocks();
+  updateFacultyOptions();
+  unlockComponentBlock(s.component);
+  activateView('plotting');
   startEdit('schedules', id);
 }
 window.editSchedule = editSchedule;
@@ -1540,12 +1717,16 @@ const validationRules = {
   scheduleCourse: { required: true, label: 'Course' },
   scheduleSection: { required: true, label: 'Section' },
   scheduleFaculty: { required: true, label: 'Faculty' },
-  startTime: { required: true, label: 'Start time' },
-  endTime: { required: true, label: 'End time' },
+  startTime_lecture: { required: true, label: 'Lecture start time' },
+  endTime_lecture: { required: true, label: 'Lecture end time' },
+  startTime_laboratory: { required: true, label: 'Laboratory start time' },
+  endTime_laboratory: { required: true, label: 'Laboratory end time' },
 };
 
 // Which fields belong to which <form>, for "validate everything and show
-// the summary" on submit.
+// the summary" on submit. A disabled field (locked-summary or hidden
+// component block) is skipped by validateField(), so both components can
+// always be listed here regardless of which one is actually editable.
 const formFieldMap = {
   loginForm: ['loginUsername', 'loginPassword'],
   courseForm: ['courseCode', 'courseTitle', 'courseYear', 'lecUnits', 'labUnits'],
@@ -1553,7 +1734,7 @@ const formFieldMap = {
   facultyForm: ['facultyName', 'maxPreparations'],
   roomForm: ['roomName', 'roomCapacity'],
   facultyCourseForm: ['assignFaculty', 'assignCourse'],
-  scheduleForm: ['scheduleSchoolYear', 'scheduleCourse', 'scheduleSection', 'scheduleFaculty', 'startTime', 'endTime'],
+  scheduleForm: ['scheduleSchoolYear', 'scheduleCourse', 'scheduleSection', 'scheduleFaculty', 'startTime_lecture', 'endTime_lecture', 'startTime_laboratory', 'endTime_laboratory'],
 };
 
 function shakeEl(el) {
@@ -1910,41 +2091,99 @@ formSubmit('sectionForm', () => ({ year_level: $('sectionYear').value, section_n
 formSubmit('facultyForm', () => ({ faculty_name: $('facultyName').value, max_preparations: $('maxPreparations').value, is_active: $('facultyActive').checked ? 1 : 0 }), 'faculty.php', 'faculty');
 formSubmit('roomForm', () => ({ room_name: $('roomName').value, room_type: $('roomType').value, capacity: $('roomCapacity').value, is_active: $('roomActive').checked ? 1 : 0 }), 'rooms.php', 'rooms');
 formSubmit('facultyCourseForm', () => ({ faculty_id: $('assignFaculty').value, course_id: $('assignCourse').value }), 'faculty_courses.php', 'assignments');
-formSubmit('scheduleForm', () => ({ school_year: $('scheduleSchoolYear').value, course_id: $('scheduleCourse').value, component: $('scheduleComponent').value, section_id: $('scheduleSection').value, faculty_id: $('scheduleFaculty').value, room_id: $('scheduleRoom').value, set_type: $('setType').value, day_of_week: getEffectiveDayPattern(), start_time: $('startTime').value, end_time: $('endTime').value, notes: $('notes').value }), 'schedules.php', 'schedules');
+/**
+ * Custom submit handler for the Subject Offering form (not the generic
+ * formSubmit() helper, since one submit here can create/update up to two
+ * schedule rows -- Lecture and Laboratory -- atomically in one request. Only
+ * components that are currently unlocked/editable are included: an
+ * already-saved, still-locked sibling component is left untouched
+ * server-side and still counts toward the completeness check there.
+ */
+$('scheduleForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!validateForm('scheduleForm')) return;
 
-$('scheduleCourse').addEventListener('change', () => {
-  updateComponentOptions();
-  updateFacultyOptions();
-  updateRoomOptions();
+  const componentsPayload = COMPONENT_TYPES
+    .filter((c) => !$('componentBlock_' + c).classList.contains('hidden') && !$('componentFields_' + c).classList.contains('hidden'))
+    .map((c) => {
+      const payload = {
+        component: c,
+        set_type: $('setType_' + c).value,
+        day_of_week: getEffectiveDayPattern(c),
+        start_time: $('startTime_' + c).value,
+        end_time: $('endTime_' + c).value,
+        room_id: $('scheduleRoom_' + c).value,
+        notes: $('notes_' + c).value,
+      };
+      const existingId = existingComponentId(c);
+      if (existingId && componentUnlocked[c]) payload.id = existingId;
+      return payload;
+    });
+
+  if (!componentsPayload.length) {
+    showToast('Nothing to save -- click Edit on a component above to change it.', 'warning');
+    return;
+  }
+
+  const body = {
+    school_year: $('scheduleSchoolYear').value,
+    course_id: $('scheduleCourse').value,
+    section_id: $('scheduleSection').value,
+    faculty_id: $('scheduleFaculty').value,
+    components: componentsPayload,
+  };
+
+  const submitBtn = $('scheduleSubmitBtn');
+  const originalLabel = submitBtn.innerHTML;
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+
+  try {
+    await request('schedules.php?mode=offering', { method: 'POST', body: JSON.stringify(body) });
+    showToast('Subject offering saved successfully', 'success');
+    cancelEdit('schedules');
+    await loadAll();
+  } catch (err) {
+    if (err.data && (err.data.conflict_type === 'instructor_mismatch' || err.data.conflict_type === 'duplicate_component')) {
+      showInstructorConflictModal(err.message, err.data.existing_schedule_id, err.data.conflict_type);
+    } else {
+      showToast(err.message, 'error');
+    }
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = originalLabel;
+  }
+});
+
+function onCourseChange() {
   updateSectionOptions();
-  checkLiveConflict();
-});
+  onOfferingContextChange();
+}
 
-$('scheduleComponent').addEventListener('change', () => {
-  updateRoomOptions();
-  checkLiveConflict();
-});
+function onOfferingContextChange() {
+  COMPONENT_TYPES.forEach((c) => { componentUnlocked[c] = false; resetComponentFields(c); });
+  updateComponentBlocks();
+  updateFacultyOptions();
+  COMPONENT_TYPES.forEach((c) => checkLiveConflict(c));
+}
 
-$('scheduleSection').addEventListener('change', updateFacultyOptions);
-$('scheduleSchoolYear').addEventListener('change', updateFacultyOptions);
+$('scheduleCourse').addEventListener('change', onCourseChange);
+$('scheduleSection').addEventListener('change', onOfferingContextChange);
+$('scheduleSchoolYear').addEventListener('change', onOfferingContextChange);
 
-$('scheduleDuration').addEventListener('change', () => {
-  updateEndTimeFromDuration();
-  checkLiveConflict();
-});
-
-$('startTime').addEventListener('change', () => {
-  updateEndTimeFromDuration();
-  checkLiveConflict();
-});
-
-$('endTime').addEventListener('change', checkLiveConflict);
-
-$('setType').addEventListener('change', updateRoomRequirement);
-updateRoomRequirement();
-
-['scheduleSection', 'scheduleFaculty', 'scheduleRoom', 'dayOfWeek', 'setType', 'scheduleSchoolYear'].forEach((id) => {
-  $(id).addEventListener('change', checkLiveConflict);
+COMPONENT_TYPES.forEach((c) => {
+  $('scheduleDuration_' + c).addEventListener('change', () => { updateEndTimeFromDuration(c); checkLiveConflict(c); });
+  $('startTime_' + c).addEventListener('change', () => { updateEndTimeFromDuration(c); checkLiveConflict(c); });
+  $('endTime_' + c).addEventListener('change', () => checkLiveConflict(c));
+  $('setType_' + c).addEventListener('change', () => { updateRoomRequirement(c); checkLiveConflict(c); });
+  $('scheduleRoom_' + c).addEventListener('change', () => checkLiveConflict(c));
+  $('dayOfWeek_' + c).addEventListener('change', () => {
+    $('customDaysRow_' + c).classList.toggle('hidden', $('dayOfWeek_' + c).value !== 'Custom');
+    checkLiveConflict(c);
+  });
+  $('customDaysRow_' + c).querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+    cb.addEventListener('change', () => checkLiveConflict(c));
+  });
+  updateRoomRequirement(c);
 });
 
 ['filterSchoolYear', 'filterYear', 'filterSemester', 'filterSection', 'filterFaculty'].forEach((id) => {
@@ -2013,16 +2252,12 @@ $('logoutBtn').addEventListener('click', async () => {
 });
 
 $('scheduleSchoolYear').value = suggestedSchoolYear();
-populateTimeSelect('startTime', { startHour: 6, endHour: 21 });
-populateTimeSelect('endTime', { startHour: 6, endHour: 21 });
-
-$('dayOfWeek').addEventListener('change', () => {
-  $('customDaysRow').classList.toggle('hidden', $('dayOfWeek').value !== 'Custom');
-});
-
-document.querySelectorAll('#customDaysRow input[type="checkbox"]').forEach((cb) => {
-  cb.addEventListener('change', checkLiveConflict);
-});
+populateTimeSelect('startTime_lecture', { startHour: 6, endHour: 21 });
+populateTimeSelect('endTime_lecture', { startHour: 6, endHour: 21 });
+populateTimeSelect('startTime_laboratory', { startHour: 6, endHour: 21 });
+populateTimeSelect('endTime_laboratory', { startHour: 6, endHour: 21 });
+COMPONENT_TYPES.forEach((c) => resetComponentFields(c));
+updateComponentBlocks();
 
 (async () => {
   try {

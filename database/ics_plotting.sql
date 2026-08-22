@@ -91,7 +91,12 @@ CREATE TABLE schedules (
   FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
   FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE,
   FOREIGN KEY (faculty_id) REFERENCES faculty(id) ON DELETE CASCADE,
-  FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE SET NULL
+  FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE SET NULL,
+  -- One schedule row per Component (Lecture/Laboratory) per Course +
+  -- Section + School Year -- prevents plotting e.g. two Lecture schedules
+  -- for the same subject offering. Backed up by an app-level check in
+  -- api/schedules.php that produces a friendly error message.
+  CONSTRAINT uq_schedule_component UNIQUE (course_id, section_id, school_year, component)
 );
 
 INSERT INTO users(full_name, username, password_hash) VALUES
