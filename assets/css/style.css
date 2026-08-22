@@ -349,6 +349,7 @@ select:focus-visible,
   color: var(--text-primary);
   font-weight: 500;
   line-height: 1.4;
+  white-space: pre-line;
 }
 
 .toast .toast-close {
@@ -919,13 +920,22 @@ select.faculty-locked:disabled {
 }
 
 .component-status-icon {
-  font-size: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   color: var(--text-light);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  white-space: nowrap;
 }
 
-.component-status-icon.done { color: var(--success); }
+.component-status-icon.done { color: var(--success); background: #eafaf1; }
 .component-status-icon.pending { color: var(--text-light); }
-.component-status-icon.editing { color: var(--accent); }
+.component-status-icon.editing { color: var(--accent); background: #fef5e7; }
 
 .component-summary {
   flex: 1;

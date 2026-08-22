@@ -24,11 +24,19 @@ function schedules_share_day(string $a, string $b): bool {
 /**
  * A course/component is exempt from the SET_1/SET_2 alternation rule (i.e.
  * it still conflicts even against the "opposite" alternating set) when it's
- * a lecture component or a non-major (minor) course. Lab components of
- * major courses are the ones that genuinely alternate week-to-week.
+ * a lecture component or one of these specific non-alternating minor
+ * categories (GE, PATHFIT, NSTP, LuxMundi) -- these meet every week, not on
+ * alternating weeks, so SET 1 and SET 2 of one of these still coincide.
+ * Deliberately NOT "any non-major category": electives (and "other") can
+ * have real major-style lab components (e.g. ESC 211/221/312/321/322/323/
+ * 412/413) that DO alternate week-to-week like a major's lab, so treating
+ * every non-major category as exempt would incorrectly block a valid
+ * SET1/SET2 elective-lab pairing.
  */
+const NON_ALTERNATING_MINOR_CATEGORIES = ['ge', 'pathfit', 'nstp', 'luxmundi'];
+
 function is_minor_or_lecture(string $component, string $category): bool {
-    return $component === 'lecture' || $category !== 'major';
+    return $component === 'lecture' || in_array($category, NON_ALTERNATING_MINOR_CATEGORIES, true);
 }
 
 /**
@@ -287,8 +295,21 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
     }
 }
 
+/**
+ * delivery_mode mirrors set_type into a human-readable label: SET 0 is
+ * always face-to-face; SET 1/SET 2 are the two alternating hybrid
+ * rotations, NOT "online" -- they still meet in person, just every other
+ * week. (Previously both were stored as the same 'online' value, which
+ * didn't match the "Hybrid Rotation A/B" labels shown in the UI.)
+ */
+function delivery_mode_for_set_type(string $setType): string {
+    if ($setType === 'set_1') return 'hybrid_rotation_a';
+    if ($setType === 'set_2') return 'hybrid_rotation_b';
+    return 'face_to_face';
+}
+
 function insert_schedule(PDO $pdo, array $d): int {
-    $deliveryMode = $d['set_type'] === 'set_0' ? 'face_to_face' : 'online';
+    $deliveryMode = delivery_mode_for_set_type($d['set_type']);
     $roomId = empty($d['room_id']) ? null : (int)$d['room_id'];
     $stmt = $pdo->prepare('INSERT INTO schedules(course_id,section_id,faculty_id,room_id,component,delivery_mode,set_type,school_year,day_of_week,start_time,end_time,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)');
     $stmt->execute([(int)$d['course_id'],(int)$d['section_id'],(int)$d['faculty_id'],$roomId,$d['component'],$deliveryMode,$d['set_type'],$d['school_year'],$d['day_of_week'],$d['start_time'],$d['end_time'],$d['notes'] ?? null]);
@@ -296,7 +317,7 @@ function insert_schedule(PDO $pdo, array $d): int {
 }
 
 function update_schedule(PDO $pdo, array $d, int $id): void {
-    $deliveryMode = $d['set_type'] === 'set_0' ? 'face_to_face' : 'online';
+    $deliveryMode = delivery_mode_for_set_type($d['set_type']);
     $roomId = empty($d['room_id']) ? null : (int)$d['room_id'];
     $stmt = $pdo->prepare('UPDATE schedules SET course_id=?, section_id=?, faculty_id=?, room_id=?, component=?, delivery_mode=?, set_type=?, school_year=?, day_of_week=?, start_time=?, end_time=?, notes=? WHERE id=?');
     $stmt->execute([(int)$d['course_id'],(int)$d['section_id'],(int)$d['faculty_id'],$roomId,$d['component'],$deliveryMode,$d['set_type'],$d['school_year'],$d['day_of_week'],$d['start_time'],$d['end_time'],$d['notes'] ?? null,$id]);
@@ -369,13 +390,17 @@ function save_subject_offering(PDO $pdo, array $body): array {
     }
 
     $coveredComponents = array_unique(array_merge(array_values($existingComponents), $submittedComponents));
-    $missing = array_diff($requiredComponents, $coveredComponents);
+    $missing = array_values(array_diff($requiredComponents, $coveredComponents));
     if (!empty($missing)) {
-        $missingLabel = implode(' and ', array_map('ucfirst', $missing));
+        $missingLabels = array_map('ucfirst', $missing);
+        $isPlural = count($missingLabels) > 1;
+        $message = $isPlural
+            ? $course['course_code'] . ' requires ' . implode(' and ', $missingLabels) . ' schedules. Please complete the following before saving:' . "\n" . implode("\n", array_map(function ($l) { return '- ' . $l; }, $missingLabels))
+            : $course['course_code'] . ' requires a ' . $missingLabels[0] . ' schedule. Please complete it before saving.';
         json_response(
             false,
-            $course['course_code'] . ' requires both Lecture and Laboratory schedules. Please complete the ' . $missingLabel . ' schedule before saving.',
-            ['conflict_type' => 'incomplete_offering', 'missing_components' => array_values($missing)],
+            $message,
+            ['conflict_type' => 'incomplete_offering', 'missing_components' => $missing],
             422
         );
     }
@@ -397,6 +422,32 @@ function save_subject_offering(PDO $pdo, array $body): array {
             'notes' => $c['notes'] ?? null,
         ];
         $componentId = isset($c['id']) && $c['id'] ? (int)$c['id'] : null;
+
+        // Ownership check: the submitted id must actually be the row for
+        // THIS course + section + school year + component. Without this,
+        // a stale/tampered/mismatched id in the request could make an
+        // offering for Course A silently overwrite an unrelated schedule
+        // row belonging to a completely different course/section -- the
+        // same "never trust the frontend alone" principle already applied
+        // to the instructor-consistency rule.
+        if ($componentId) {
+            $ownerStmt = $pdo->prepare('SELECT course_id, section_id, school_year, component FROM schedules WHERE id=?');
+            $ownerStmt->execute([$componentId]);
+            $owner = $ownerStmt->fetch();
+            if (!$owner) {
+                $pdo->rollBack();
+                json_response(false, 'Schedule #' . $componentId . ' was not found.', null, 404);
+            }
+            $belongsToOffering = (int)$owner['course_id'] === (int)$body['course_id']
+                && (int)$owner['section_id'] === (int)$body['section_id']
+                && $owner['school_year'] === $body['school_year']
+                && $owner['component'] === $c['component'];
+            if (!$belongsToOffering) {
+                $pdo->rollBack();
+                json_response(false, 'The selected schedule does not belong to this subject offering.', ['conflict_type' => 'offering_mismatch'], 409);
+            }
+        }
+
         // validate_schedule() calls json_response()+exit() on any failure,
         // which ends the request without an explicit rollback -- the
         // uncommitted transaction is discarded automatically when the PDO

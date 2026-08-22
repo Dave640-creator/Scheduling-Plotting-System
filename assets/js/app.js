@@ -794,13 +794,18 @@ function updateComponentBlocks() {
       setComponentFieldsEnabled(c, true);
       summaryEl.textContent = '';
       editBtn.classList.add('hidden');
-      icon.innerHTML = existing ? '<i class="fas fa-pen"></i>' : '<i class="fas fa-circle"></i>';
-      icon.className = 'component-status-icon ' + (existing ? 'editing' : 'pending');
+      if (existing) {
+        icon.innerHTML = '<i class="fas fa-pen"></i> Editing';
+        icon.className = 'component-status-icon editing';
+      } else {
+        icon.innerHTML = '<i class="fas fa-circle"></i> Not Scheduled';
+        icon.className = 'component-status-icon pending';
+      }
     } else {
       setComponentFieldsEnabled(c, false);
       summaryEl.textContent = componentSummaryText(existing);
       editBtn.classList.remove('hidden');
-      icon.innerHTML = '<i class="fas fa-circle-check"></i>';
+      icon.innerHTML = '<i class="fas fa-circle-check"></i> Scheduled';
       icon.className = 'component-status-icon done';
     }
 
@@ -996,10 +1001,16 @@ function daysOverlap(patternA, patternB) {
 }
 
 /**
- * Mirrors is_minor_or_lecture() in api/schedules.php.
+ * Mirrors is_minor_or_lecture() in api/schedules.php: lecture components
+ * and non-alternating minor categories (GE/PATHFIT/NSTP/LuxMundi) are
+ * exempt from SET1/SET2 alternation. Electives and "other" are NOT
+ * included here -- some electives (e.g. the ESC series) have real
+ * major-style lab components that genuinely alternate.
  */
+const NON_ALTERNATING_MINOR_CATEGORIES = ['ge', 'pathfit', 'nstp', 'luxmundi'];
+
 function isMinorOrLecture(component, category) {
-  return component === 'lecture' || category !== 'major';
+  return component === 'lecture' || NON_ALTERNATING_MINOR_CATEGORIES.includes(category);
 }
 
 /**

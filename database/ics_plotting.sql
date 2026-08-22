@@ -81,7 +81,7 @@ CREATE TABLE schedules (
   room_id INT NULL,
   component ENUM('lecture','laboratory') NOT NULL,
   set_type ENUM('set_0','set_1','set_2') NOT NULL DEFAULT 'set_0',
-  delivery_mode ENUM('face_to_face','online') NOT NULL DEFAULT 'face_to_face',
+  delivery_mode ENUM('face_to_face','hybrid_rotation_a','hybrid_rotation_b') NOT NULL DEFAULT 'face_to_face',
   school_year VARCHAR(9) NOT NULL DEFAULT '2026-2027',
   day_of_week VARCHAR(60) NOT NULL,
   start_time TIME NOT NULL,
