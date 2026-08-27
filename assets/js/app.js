@@ -387,6 +387,36 @@ function fillSelect(id, data, labelFn, value = 'id', first = 'Select') {
 
 const YEAR_LEVEL_LABELS = { 1: '1st Year', 2: '2nd Year', 3: '3rd Year', 4: '4th Year' };
 
+/**
+ * Mirrors ALLOWED_SET_TYPES_BY_YEAR_LEVEL in api/schedules.php: 1st/4th year
+ * sections rotate on SET 1, 2nd/3rd year sections rotate on SET 2, and every
+ * year level can use SET 0. This only hides the invalid choices earlier in
+ * the UI -- the backend remains the authoritative check.
+ */
+const ALLOWED_SET_TYPES_BY_YEAR_LEVEL = {
+  1: ['set_0', 'set_1'],
+  2: ['set_0', 'set_2'],
+  3: ['set_0', 'set_2'],
+  4: ['set_0', 'set_1'],
+};
+
+/** Shows only the SET options valid for the selected course's year level in one component's Set Type dropdown, and resets the selection if it's no longer valid. */
+function updateSetTypeOptions(component) {
+  const course = getSelectedCourse();
+  const select = $('setType_' + component);
+  const allowed = course
+    ? (ALLOWED_SET_TYPES_BY_YEAR_LEVEL[Number(course.year_level)] || ['set_0'])
+    : ['set_0', 'set_1', 'set_2'];
+  Array.from(select.options).forEach((opt) => {
+    const isAllowed = allowed.includes(opt.value);
+    opt.hidden = !isAllowed;
+    opt.disabled = !isAllowed;
+  });
+  if (!allowed.includes(select.value)) {
+    select.value = allowed.includes('set_0') ? 'set_0' : allowed[0];
+  }
+}
+
 function fillCourseSelectGrouped(id, courses, first = 'Select') {
   const byYear = {};
   courses.forEach((c) => {
@@ -744,7 +774,7 @@ function setComponentFieldsEnabled(component, enabled) {
 function componentSummaryText(schedule) {
   if (!schedule) return '';
   const fac = state.faculty.find((f) => Number(f.id) === Number(schedule.faculty_id));
-  const room = schedule.room_name || 'Online / No room';
+  const room = schedule.room_name || 'No room selected';
   return `${formatDayPattern(schedule.day_of_week)} ${schedule.start_time.slice(0, 5)}-${schedule.end_time.slice(0, 5)} \u00b7 ${room}` + (fac ? ` \u00b7 ${fac.faculty_name}` : '');
 }
 
@@ -927,21 +957,29 @@ function updateRoomOptions(component) {
   if (component === 'lecture') roomsList = roomsList.filter((r) => r.room_type === 'lecture');
   if (component === 'laboratory') roomsList = roomsList.filter((r) => r.room_type === 'laboratory');
 
-  fillSelect('scheduleRoom_' + component, roomsList, (r) => `${r.room_name} - ${r.room_type} (${r.capacity})` + (Number(r.is_active) === 0 ? ' (Inactive)' : ''), 'id', 'No room / hybrid');
+  fillSelect('scheduleRoom_' + component, roomsList, (r) => `${r.room_name} - ${r.room_type} (${r.capacity})` + (Number(r.is_active) === 0 ? ' (Inactive)' : ''), 'id', 'No room selected');
 }
 
 const SET_TYPE_HINTS = {
-  set_0: 'Always face-to-face, every week -- a room is required.',
-  set_1: 'Hybrid Rotation A. Alternates week-to-week with Rotation B labs of major courses (won\'t conflict with those), but still conflicts with any lecture or minor-course schedule, since those meet every week.',
-  set_2: 'Hybrid Rotation B. Alternates week-to-week with Rotation A labs of major courses (won\'t conflict with those), but still conflicts with any lecture or minor-course schedule, since those meet every week.',
+  set_0: 'SET 0: 🏫 F2F every week (Week 1-4). Always face-to-face -- a room is required.',
+  set_1: 'SET 1: 🏫 F2F Week 1 → 💻 Online Week 2 → 🏫 F2F Week 3 → 💻 Online Week 4 (repeats). Alternates week-to-week with SET 2 (won\'t conflict with it), but still conflicts with any lecture or minor-course schedule, since those meet every week.',
+  set_2: 'SET 2: 💻 Online Week 1 → 🏫 F2F Week 2 → 💻 Online Week 3 → 🏫 F2F Week 4 (repeats). Alternates week-to-week with SET 1 (won\'t conflict with it), but still conflicts with any lecture or minor-course schedule, since those meet every week.',
+};
+
+const ROOM_HINTS = {
+  set_0: 'SET 0 is always face-to-face, so a room is required.',
+  set_1: 'Optional -- select the room used during this class\'s F2F weeks (Week 1, 3, ...).',
+  set_2: 'Optional -- select the room used during this class\'s F2F weeks (Week 2, 4, ...).',
 };
 
 function updateRoomRequirement(component) {
-  const isSet0 = $('setType_' + component).value === 'set_0';
+  const setType = $('setType_' + component).value;
+  const isSet0 = setType === 'set_0';
   $('roomRequiredMark_' + component).classList.toggle('hidden', !isSet0);
-  $('roomRequiredHint_' + component).classList.toggle('hidden', !isSet0);
+  $('roomRequiredHint_' + component).classList.remove('hidden');
+  $('roomRequiredHint_' + component).textContent = ROOM_HINTS[setType] || '';
   $('scheduleRoom_' + component).required = isSet0;
-  $('setTypeHint_' + component).textContent = SET_TYPE_HINTS[$('setType_' + component).value] || '';
+  $('setTypeHint_' + component).textContent = SET_TYPE_HINTS[setType] || '';
 }
 
 function updateSectionOptions() {
@@ -1329,7 +1367,7 @@ const SCHEDULES_TABLE_COLUMNS = [
   { key: 'section_no', label: 'Section', searchValue: (s) => `${s.program_code} ${s.year_level} ${s.section_no}`, render: (s) => `${escapeHtml(s.program_code)} ${s.year_level} - ${escapeHtml(s.section_no)}` },
   { key: 'faculty_name', label: 'Faculty' },
   { key: 'set_type', label: 'Set' },
-  { key: 'room_name', label: 'Room', render: (s) => escapeHtml(s.room_name || 'No room / Hybrid') },
+  { key: 'room_name', label: 'Room', render: (s) => escapeHtml(s.room_name || 'No room selected') },
 ];
 
 /**
@@ -1580,7 +1618,7 @@ function editSchedule(id) {
   $('scheduleCourse').value = s.course_id;
   updateSectionOptions();
   $('scheduleSection').value = s.section_id;
-  COMPONENT_TYPES.forEach((c) => { componentUnlocked[c] = false; resetComponentFields(c); });
+  COMPONENT_TYPES.forEach((c) => { componentUnlocked[c] = false; resetComponentFields(c); updateSetTypeOptions(c); });
   updateComponentBlocks();
   updateFacultyOptions();
   unlockComponentBlock(s.component);
@@ -2200,7 +2238,7 @@ function onCourseChange() {
 }
 
 function onOfferingContextChange() {
-  COMPONENT_TYPES.forEach((c) => { componentUnlocked[c] = false; resetComponentFields(c); });
+  COMPONENT_TYPES.forEach((c) => { componentUnlocked[c] = false; resetComponentFields(c); updateSetTypeOptions(c); });
   updateComponentBlocks();
   updateFacultyOptions();
   COMPONENT_TYPES.forEach((c) => checkLiveConflict(c));

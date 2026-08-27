@@ -35,6 +35,24 @@ function schedules_share_day(string $a, string $b): bool {
  */
 const NON_ALTERNATING_MINOR_CATEGORIES = ['ge', 'pathfit', 'nstp', 'luxmundi'];
 
+/**
+ * Which SET types a section's year level is allowed to use. Per the actual
+ * school business rules: 1st and 4th year sections rotate on SET 1
+ * (F2F Week 1 / Online Week 2), while 2nd and 3rd year sections rotate on
+ * the opposite pattern, SET 2 (Online Week 1 / F2F Week 2). SET 0
+ * (always face-to-face) is available to every year level. This is
+ * intentionally NOT "any year can use any SET" -- a 1st year section
+ * submitting SET 2, for example, must be rejected.
+ */
+const ALLOWED_SET_TYPES_BY_YEAR_LEVEL = [
+    1 => ['set_0', 'set_1'],
+    2 => ['set_0', 'set_2'],
+    3 => ['set_0', 'set_2'],
+    4 => ['set_0', 'set_1'],
+];
+
+const SET_TYPE_LABELS = ['set_0' => 'SET 0', 'set_1' => 'SET 1', 'set_2' => 'SET 2'];
+
 function is_minor_or_lecture(string $component, string $category): bool {
     return $component === 'lecture' || in_array($category, NON_ALTERNATING_MINOR_CATEGORIES, true);
 }
@@ -105,6 +123,23 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
     // for a 1st year block section).
     if ((int)$course['year_level'] !== (int)$section['year_level']) {
         json_response(false, 'Year level mismatch: "' . $course['course_code'] . '" is a Year ' . $course['year_level'] . ' course, but the selected section is Year ' . $section['year_level'] . '.', null, 422);
+    }
+
+    // Year-level -> allowed SET type validation. This is enforced here in
+    // the backend regardless of what the frontend hides, since a direct API
+    // call (or stale UI state) must never be able to plot an invalid
+    // SET/year-level combination.
+    $sectionYearLevel = (int)$section['year_level'];
+    $allowedSetTypes = ALLOWED_SET_TYPES_BY_YEAR_LEVEL[$sectionYearLevel] ?? ['set_0'];
+    if (!in_array($d['set_type'], $allowedSetTypes, true)) {
+        $allowedLabels = implode(' or ', array_map(fn($s) => SET_TYPE_LABELS[$s] ?? $s, $allowedSetTypes));
+        $submittedLabel = SET_TYPE_LABELS[$d['set_type']] ?? $d['set_type'];
+        json_response(
+            false,
+            'Invalid SET for this section: Year ' . $sectionYearLevel . ' sections may only use ' . $allowedLabels . '. "' . $submittedLabel . '" is not allowed.',
+            null,
+            422
+        );
     }
 
     if ($d['component'] === 'lecture' && (float)$course['lec_units'] <= 0) {
