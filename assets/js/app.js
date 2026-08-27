@@ -445,9 +445,12 @@ let courseComboboxFlatList = [];
 let courseComboboxActiveIndex = -1;
 
 function courseComboboxGroups(filterText) {
+  const yearLevel = $('scheduleYearLevel').value;
+  if (!yearLevel) return []; // Course is gated on Year Level -- nothing to offer until one is picked
   const q = (filterText || '').trim().toLowerCase();
   const byYear = {};
   state.courses.forEach((c) => {
+    if (Number(c.year_level) !== Number(yearLevel)) return;
     if (q) {
       const haystack = `${c.course_code} ${c.course_title}`.toLowerCase();
       if (!haystack.includes(q)) return;
@@ -470,10 +473,15 @@ function renderCourseComboboxPanel(filterText) {
   courseComboboxActiveIndex = -1;
 
   if (!groups.length) {
-    panel.innerHTML = '<div class="combobox-empty">No matching courses.</div>';
+    const yearLevel = $('scheduleYearLevel').value;
+    panel.innerHTML = `<div class="combobox-empty">${yearLevel ? 'No matching courses.' : 'Select a year level first.'}</div>`;
     return;
   }
 
+  // With Course now gated on Year Level, there's normally exactly one
+  // group (the selected year), so the group label is redundant -- only
+  // show it if somehow more than one year level is present.
+  const showGroupLabels = groups.length > 1;
   panel.innerHTML = groups.map((g) => {
     const optionsHtml = g.courses.map((c) => {
       const idx = courseComboboxFlatList.length;
@@ -484,7 +492,7 @@ function renderCourseComboboxPanel(filterText) {
         <small>${escapeHtml(c.course_title)}</small>
       </div>`;
     }).join('');
-    return `<div class="combobox-group-label">${escapeHtml(g.label)}</div>${optionsHtml}`;
+    return `${showGroupLabels ? `<div class="combobox-group-label">${escapeHtml(g.label)}</div>` : ''}${optionsHtml}`;
   }).join('');
 
   panel.querySelectorAll('.combobox-option').forEach((opt) => {
@@ -499,6 +507,7 @@ function renderCourseComboboxPanel(filterText) {
 }
 
 function openCourseComboboxPanel() {
+  if ($('scheduleCourseSearch').disabled) return; // gated: pick a Year Level first
   renderCourseComboboxPanel($('scheduleCourseSearch').value);
   $('scheduleCourseList').classList.remove('hidden');
   $('scheduleCourseSearch').setAttribute('aria-expanded', 'true');
@@ -530,6 +539,23 @@ function syncCourseComboboxDisplay() {
   const courseId = Number($('scheduleCourse').value) || null;
   const course = courseId ? state.courses.find((c) => Number(c.id) === courseId) : null;
   $('scheduleCourseSearch').value = course ? `${course.course_code} - ${course.course_title}` : '';
+}
+
+/** Enables/disables the Course search input based on whether a Year Level is currently selected -- Course is only pickable once its parent Year Level is set, per the Year Level -> Course -> Section flow. */
+function updateCourseSearchAvailability() {
+  const yearLevel = $('scheduleYearLevel').value;
+  const input = $('scheduleCourseSearch');
+  input.disabled = !yearLevel;
+  input.placeholder = yearLevel ? 'Search course code or title...' : 'Select a year level first';
+}
+
+/** Year Level changed: the previously selected Course (if any) almost certainly no longer belongs to the new year level, so clear the whole downstream chain (Course, Section, Faculty, component blocks) and let the user re-pick from a freshly filtered Course list, per the "reset dependent selections" requirement. */
+function onYearLevelChange() {
+  $('scheduleCourse').value = '';
+  syncCourseComboboxDisplay();
+  closeCourseComboboxPanel();
+  updateCourseSearchAvailability();
+  onCourseChange();
 }
 
 async function loadAll() {
@@ -671,6 +697,7 @@ function renderSelects() {
   fillSelect('assignFaculty', state.faculty, (f) => f.faculty_name);
   updateComponentBlocks();
   updateFacultyOptions();
+  updateCourseSearchAvailability();
   updateSectionOptions();
 }
 
@@ -1083,21 +1110,20 @@ function updateRoomRequirement(component) {
   $('setTypeHint_' + component).textContent = SET_TYPE_HINTS[setType] || '';
 }
 
-/** Keeps the read-only "Year Level" field in the Plot Schedule form in sync with whichever course is currently selected -- year level is a property of the course, not something plotted per-schedule, so it's shown but never user-editable here (only in Add/Edit Course). */
-function updateYearLevelDisplay() {
-  const course = getSelectedCourse();
-  const display = $('scheduleYearLevelDisplay');
-  display.value = course ? (YEAR_LEVEL_LABELS[Number(course.year_level)] || `Year ${course.year_level}`) : '';
-}
-
 function updateSectionOptions() {
   const course = getSelectedCourse();
-  updateYearLevelDisplay();
+  const yearLevel = $('scheduleYearLevel').value;
   const sectionSelect = $('scheduleSection');
   const editingSectionId = editing.schedules ? Number((state.schedules.find((s) => Number(s.id) === Number(editing.schedules)) || {}).section_id) : null;
 
   if (!course) {
-    fillSelect('scheduleSection', state.sections, (s) => `${s.program_code} ${s.year_level} - Section ${s.section_no} (${s.student_count})`);
+    // Section still waits for a Course pick, but if a Year Level is already
+    // chosen we can narrow the list that far ahead of time -- less
+    // scrolling, and it can never show a mismatched year level.
+    const sectionsSoFar = yearLevel
+      ? state.sections.filter((s) => Number(s.year_level) === Number(yearLevel))
+      : state.sections;
+    fillSelect('scheduleSection', sectionsSoFar, (s) => `${s.program_code} ${s.year_level} - Section ${s.section_no} (${s.student_count})`);
     sectionSelect.disabled = false;
     sectionSelect.title = '';
     return;
@@ -1568,6 +1594,7 @@ function cancelEdit(entity) {
   if (entity === 'schedules') {
     $('scheduleSchoolYear').value = suggestedSchoolYear();
     syncCourseComboboxDisplay();
+    updateCourseSearchAvailability();
     COMPONENT_TYPES.forEach((c) => { componentUnlocked[c] = false; resetComponentFields(c); });
     updateSectionOptions();
     updateComponentBlocks();
@@ -1725,6 +1752,9 @@ function editSchedule(id) {
   if (!s) return;
   editing.schedules = id; // UI flag only (Cancel button + "Update" label) -- the actual save always goes through the batched subject-offering endpoint
   $('scheduleSchoolYear').value = s.school_year;
+  const course = state.courses.find((c) => Number(c.id) === Number(s.course_id));
+  $('scheduleYearLevel').value = course ? course.year_level : '';
+  updateCourseSearchAvailability();
   $('scheduleCourse').value = s.course_id;
   syncCourseComboboxDisplay();
   updateSectionOptions();
@@ -1903,6 +1933,7 @@ const validationRules = {
   assignCourse: { required: true, label: 'Course' },
 
   scheduleSchoolYear: { required: true, pattern: /^\d{4}-\d{4}$/, label: 'School year', message: 'School year must be in the format YYYY-YYYY (e.g. 2026-2027).' },
+  scheduleYearLevel: { required: true, label: 'Year level' },
   scheduleCourse: { required: true, label: 'Course' },
   scheduleSection: { required: true, label: 'Section' },
   scheduleFaculty: { required: true, label: 'Faculty' },
@@ -1923,7 +1954,7 @@ const formFieldMap = {
   facultyForm: ['facultyName', 'maxPreparations'],
   roomForm: ['roomName', 'roomCapacity'],
   facultyCourseForm: ['assignFaculty', 'assignCourse'],
-  scheduleForm: ['scheduleSchoolYear', 'scheduleCourse', 'scheduleSection', 'scheduleFaculty', 'startTime_lecture', 'endTime_lecture', 'startTime_laboratory', 'endTime_laboratory'],
+  scheduleForm: ['scheduleSchoolYear', 'scheduleYearLevel', 'scheduleCourse', 'scheduleSection', 'scheduleFaculty', 'startTime_lecture', 'endTime_lecture', 'startTime_laboratory', 'endTime_laboratory'],
 };
 
 function shakeEl(el) {
@@ -2376,6 +2407,7 @@ function onOfferingContextChange() {
 $('scheduleCourse').addEventListener('change', onCourseChange);
 $('scheduleSection').addEventListener('change', onOfferingContextChange);
 $('scheduleSchoolYear').addEventListener('change', onOfferingContextChange);
+$('scheduleYearLevel').addEventListener('change', onYearLevelChange);
 
 (function initCourseCombobox() {
   const searchInput = $('scheduleCourseSearch');
