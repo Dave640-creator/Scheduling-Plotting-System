@@ -1008,11 +1008,19 @@ select:disabled {
   opacity: 0.85;
 }
 
+input.year-level-locked:read-only {
+  background-color: rgba(243, 156, 18, 0.08);
+  border-color: rgba(243, 156, 18, 0.45);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 input:read-only {
   background: var(--bg-tertiary);
   color: var(--text-secondary);
   cursor: default;
 }
+
 
 /* =====================================================
    REAL-TIME FIELD VALIDATION

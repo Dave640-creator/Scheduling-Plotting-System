@@ -1083,8 +1083,16 @@ function updateRoomRequirement(component) {
   $('setTypeHint_' + component).textContent = SET_TYPE_HINTS[setType] || '';
 }
 
+/** Keeps the read-only "Year Level" field in the Plot Schedule form in sync with whichever course is currently selected -- year level is a property of the course, not something plotted per-schedule, so it's shown but never user-editable here (only in Add/Edit Course). */
+function updateYearLevelDisplay() {
+  const course = getSelectedCourse();
+  const display = $('scheduleYearLevelDisplay');
+  display.value = course ? (YEAR_LEVEL_LABELS[Number(course.year_level)] || `Year ${course.year_level}`) : '';
+}
+
 function updateSectionOptions() {
   const course = getSelectedCourse();
+  updateYearLevelDisplay();
   const sectionSelect = $('scheduleSection');
   const editingSectionId = editing.schedules ? Number((state.schedules.find((s) => Number(s.id) === Number(editing.schedules)) || {}).section_id) : null;
 
