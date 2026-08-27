@@ -288,11 +288,24 @@
             </div>
 
             <div class="form-group">
-              <label for="scheduleCourse">
+              <label for="scheduleCourseSearch">
                 <i class="fas fa-book"></i> Course
                 <span class="required">*</span>
               </label>
-              <select id="scheduleCourse" required></select>
+              <div class="combobox" id="scheduleCourseCombobox">
+                <input
+                  type="text"
+                  id="scheduleCourseSearch"
+                  class="combobox-input"
+                  autocomplete="off"
+                  role="combobox"
+                  aria-expanded="false"
+                  aria-controls="scheduleCourseList"
+                  aria-autocomplete="list"
+                  placeholder="Search course code or title...">
+                <select id="scheduleCourse" class="combobox-source" required tabindex="-1" aria-hidden="true"></select>
+                <div class="combobox-panel hidden" id="scheduleCourseList" role="listbox"></div>
+              </div>
             </div>
 
             <div class="form-group">
@@ -792,7 +805,13 @@
           </div>
           <div class="form-group">
             <label for="courseYear"><i class="fas fa-graduation-cap"></i> Year Level <span class="required">*</span></label>
-            <input id="courseYear" type="number" min="1" max="4" required>
+            <select id="courseYear" required>
+              <option value="">Select year level</option>
+              <option value="1">1st Year</option>
+              <option value="2">2nd Year</option>
+              <option value="3">3rd Year</option>
+              <option value="4">4th Year</option>
+            </select>
           </div>
           <div class="form-group">
             <label for="courseSemester"><i class="fas fa-calendar"></i> Semester <span class="required">*</span></label>
@@ -843,7 +862,13 @@
         <form id="sectionForm" class="form-grid">
           <div class="form-group">
             <label for="sectionYear"><i class="fas fa-graduation-cap"></i> Year Level <span class="required">*</span></label>
-            <input id="sectionYear" type="number" min="1" max="4" required>
+            <select id="sectionYear" required>
+              <option value="">Select year level</option>
+              <option value="1">1st Year</option>
+              <option value="2">2nd Year</option>
+              <option value="3">3rd Year</option>
+              <option value="4">4th Year</option>
+            </select>
           </div>
           <div class="form-group">
             <label for="sectionNo"><i class="fas fa-hashtag"></i> Section No. <span class="required">*</span></label>

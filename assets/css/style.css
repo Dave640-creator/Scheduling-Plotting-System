@@ -1078,6 +1078,88 @@ select.field-valid:focus {
   box-shadow: 0 0 0 3px rgba(39, 174, 96, 0.12);
 }
 
+/* =====================================================
+   SEARCHABLE COURSE COMBOBOX (Plot Schedule)
+   ===================================================== */
+
+.combobox {
+  position: relative;
+}
+
+/* The real <select id="scheduleCourse"> stays in the DOM as the source of
+   truth for all existing JS (value, change events, validation) but is
+   visually replaced by the search input + panel below. */
+.combobox-source {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.combobox-panel {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--bg-secondary);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  padding: var(--spacing-xs) 0;
+}
+
+.combobox-panel.hidden {
+  display: none;
+}
+
+.combobox-group-label {
+  padding: var(--spacing-xs) var(--spacing-lg);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+}
+
+.combobox-option {
+  padding: var(--spacing-sm) var(--spacing-lg);
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.combobox-option small {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.combobox-option:hover,
+.combobox-option.active {
+  background: var(--bg-tertiary);
+}
+
+.combobox-option.selected {
+  background: rgba(122, 20, 20, 0.08);
+  font-weight: 600;
+}
+
+.combobox-empty {
+  padding: var(--spacing-md) var(--spacing-lg);
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-align: center;
+}
+
 .validation-hint {
   display: none;
   font-weight: 600;

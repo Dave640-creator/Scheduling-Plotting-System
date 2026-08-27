@@ -431,6 +431,107 @@ function fillCourseSelectGrouped(id, courses, first = 'Select') {
   $(id).innerHTML = `<option value="">${escapeHtml(first)}</option>${groupsHtml}`;
 }
 
+/* =====================================================
+   SEARCHABLE COURSE COMBOBOX (Plot Schedule)
+   The real <select id="scheduleCourse"> (filled by fillCourseSelectGrouped
+   above) stays the single source of truth for course_id -- every existing
+   piece of JS (getSelectedCourse, onCourseChange, form submit, validation)
+   keeps reading/writing it exactly as before. This panel is purely a
+   friendlier way to set that same select's value, so a course list too
+   long to browse comfortably can be found by typing its code or title.
+   ===================================================== */
+
+let courseComboboxFlatList = [];
+let courseComboboxActiveIndex = -1;
+
+function courseComboboxGroups(filterText) {
+  const q = (filterText || '').trim().toLowerCase();
+  const byYear = {};
+  state.courses.forEach((c) => {
+    if (q) {
+      const haystack = `${c.course_code} ${c.course_title}`.toLowerCase();
+      if (!haystack.includes(q)) return;
+    }
+    const y = c.year_level;
+    if (!byYear[y]) byYear[y] = [];
+    byYear[y].push(c);
+  });
+  return Object.keys(byYear).sort((a, b) => a - b).map((y) => ({
+    label: YEAR_LEVEL_LABELS[y] || `Year ${y}`,
+    courses: byYear[y].slice().sort((a, b) => String(a.course_code).localeCompare(String(b.course_code))),
+  }));
+}
+
+function renderCourseComboboxPanel(filterText) {
+  const panel = $('scheduleCourseList');
+  const groups = courseComboboxGroups(filterText);
+  const selectedId = Number($('scheduleCourse').value) || null;
+  courseComboboxFlatList = [];
+  courseComboboxActiveIndex = -1;
+
+  if (!groups.length) {
+    panel.innerHTML = '<div class="combobox-empty">No matching courses.</div>';
+    return;
+  }
+
+  panel.innerHTML = groups.map((g) => {
+    const optionsHtml = g.courses.map((c) => {
+      const idx = courseComboboxFlatList.length;
+      courseComboboxFlatList.push(c);
+      const isSelected = selectedId === Number(c.id);
+      return `<div class="combobox-option${isSelected ? ' selected' : ''}" role="option" id="scheduleCourseOption_${idx}" data-index="${idx}" data-course-id="${c.id}">
+        <strong>${escapeHtml(c.course_code)}</strong>
+        <small>${escapeHtml(c.course_title)}</small>
+      </div>`;
+    }).join('');
+    return `<div class="combobox-group-label">${escapeHtml(g.label)}</div>${optionsHtml}`;
+  }).join('');
+
+  panel.querySelectorAll('.combobox-option').forEach((opt) => {
+    // mousedown (not click) fires before the search input's blur handler,
+    // so the selection is committed before blur would otherwise close the
+    // panel and discard the click.
+    opt.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      selectCourseFromCombobox(Number(opt.dataset.courseId));
+    });
+  });
+}
+
+function openCourseComboboxPanel() {
+  renderCourseComboboxPanel($('scheduleCourseSearch').value);
+  $('scheduleCourseList').classList.remove('hidden');
+  $('scheduleCourseSearch').setAttribute('aria-expanded', 'true');
+}
+
+function closeCourseComboboxPanel() {
+  $('scheduleCourseList').classList.add('hidden');
+  $('scheduleCourseSearch').setAttribute('aria-expanded', 'false');
+  courseComboboxActiveIndex = -1;
+}
+
+function updateCourseComboboxActiveOption(options) {
+  options.forEach((opt, i) => opt.classList.toggle('active', i === courseComboboxActiveIndex));
+  const activeEl = options[courseComboboxActiveIndex];
+  if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
+}
+
+/** Sets the hidden <select id="scheduleCourse">'s value and fires the same 'change' event a native selection would, so every existing course-change listener (section filtering, faculty options, component blocks) runs exactly as before. */
+function selectCourseFromCombobox(courseId) {
+  const course = state.courses.find((c) => Number(c.id) === courseId);
+  $('scheduleCourse').value = String(courseId);
+  $('scheduleCourseSearch').value = course ? `${course.course_code} - ${course.course_title}` : '';
+  closeCourseComboboxPanel();
+  $('scheduleCourse').dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+/** Re-syncs the search input's displayed text with whatever course_id the hidden select currently holds -- used whenever scheduleCourse's value is set programmatically (edit, cancel/reset) instead of through the panel. */
+function syncCourseComboboxDisplay() {
+  const courseId = Number($('scheduleCourse').value) || null;
+  const course = courseId ? state.courses.find((c) => Number(c.id) === courseId) : null;
+  $('scheduleCourseSearch').value = course ? `${course.course_code} - ${course.course_title}` : '';
+}
+
 async function loadAll() {
   const [dashboard, courses, sections, faculty, rooms, schedules, assignments] = await Promise.all([
     request('dashboard.php'), request('courses.php'), request('sections.php'), request('faculty.php'), request('rooms.php'), request('schedules.php'), request('faculty_courses.php'),
@@ -1458,6 +1559,7 @@ function cancelEdit(entity) {
   if (cfg.modalTitleId) $(cfg.modalTitleId).textContent = cfg.addTitle;
   if (entity === 'schedules') {
     $('scheduleSchoolYear').value = suggestedSchoolYear();
+    syncCourseComboboxDisplay();
     COMPONENT_TYPES.forEach((c) => { componentUnlocked[c] = false; resetComponentFields(c); });
     updateSectionOptions();
     updateComponentBlocks();
@@ -1616,6 +1718,7 @@ function editSchedule(id) {
   editing.schedules = id; // UI flag only (Cancel button + "Update" label) -- the actual save always goes through the batched subject-offering endpoint
   $('scheduleSchoolYear').value = s.school_year;
   $('scheduleCourse').value = s.course_id;
+  syncCourseComboboxDisplay();
   updateSectionOptions();
   $('scheduleSection').value = s.section_id;
   COMPONENT_TYPES.forEach((c) => { componentUnlocked[c] = false; resetComponentFields(c); updateSetTypeOptions(c); });
@@ -1821,6 +1924,9 @@ function shakeEl(el) {
   el.classList.add('shake');
 }
 
+/** Fields whose validation "source of truth" element (value + validationRules key) differs from the element the user actually sees/interacts with. Currently just the Course combobox: the value lives on the hidden <select id="scheduleCourse">, but the visible valid/invalid border, shake animation, and focus target belong on #scheduleCourseSearch instead. */
+const FIELD_VISUAL_MIRROR = { scheduleCourse: 'scheduleCourseSearch' };
+
 /** Wraps a text/number/password input in a .field-wrap div with a status-icon slot. Selects are left unwrapped (no icon) to avoid colliding with the native dropdown arrow. */
 function ensureFieldWrap(input) {
   if (input.tagName !== 'INPUT') return input;
@@ -1854,6 +1960,8 @@ function validateField(id, opts = {}) {
   const el = $(id);
   if (!rule || !el || el.disabled) return true;
 
+  const mirrorEl = FIELD_VISUAL_MIRROR[id] ? $(FIELD_VISUAL_MIRROR[id]) : null;
+  const shakeTarget = mirrorEl || el;
   const icon = document.getElementById(id + 'StatusIcon');
   const hint = document.getElementById(id + 'ValidationHint');
   const value = el.value;
@@ -1861,6 +1969,10 @@ function validateField(id, opts = {}) {
   const setState = (state, message) => {
     el.classList.toggle('field-valid', state === 'valid');
     el.classList.toggle('field-invalid', state === 'invalid');
+    if (mirrorEl) {
+      mirrorEl.classList.toggle('field-valid', state === 'valid');
+      mirrorEl.classList.toggle('field-invalid', state === 'invalid');
+    }
     if (icon) {
       icon.classList.toggle('show', state !== 'neutral');
       icon.classList.toggle('valid', state === 'valid');
@@ -1882,7 +1994,7 @@ function validateField(id, opts = {}) {
   if (value.trim() === '') {
     if (rule.required) {
       setState('invalid', rule.message || `${rule.label} is required.`);
-      if (!opts.silent) shakeEl(el);
+      if (!opts.silent) shakeEl(shakeTarget);
       return false;
     }
     setState('neutral');
@@ -1913,7 +2025,7 @@ function validateField(id, opts = {}) {
   }
 
   setState(ok ? 'valid' : 'invalid', message);
-  if (!ok && !opts.silent) shakeEl(el);
+  if (!ok && !opts.silent) shakeEl(shakeTarget);
   return ok;
 }
 
@@ -1951,6 +2063,8 @@ function clearValidationState(formId) {
     const el = $(id);
     if (!el) return;
     el.classList.remove('field-valid', 'field-invalid', 'shake');
+    const mirrorEl = FIELD_VISUAL_MIRROR[id] ? $(FIELD_VISUAL_MIRROR[id]) : null;
+    if (mirrorEl) mirrorEl.classList.remove('field-valid', 'field-invalid', 'shake');
     const icon = document.getElementById(id + 'StatusIcon');
     if (icon) { icon.classList.remove('show', 'valid', 'invalid'); icon.innerHTML = ''; }
     const hint = document.getElementById(id + 'ValidationHint');
@@ -1994,8 +2108,15 @@ function validateForm(formId) {
   showFormErrorSummary(formId, errors);
 
   if (errors.length > 0) {
-    ids.forEach((id) => { const el = $(id); if (el && el.classList.contains('field-invalid')) shakeEl(el); });
-    if (firstInvalid) $(firstInvalid).focus();
+    ids.forEach((id) => {
+      const mirrorEl = FIELD_VISUAL_MIRROR[id] ? $(FIELD_VISUAL_MIRROR[id]) : null;
+      const target = mirrorEl || $(id);
+      if (target && target.classList.contains('field-invalid')) shakeEl(target);
+    });
+    if (firstInvalid) {
+      const focusTarget = FIELD_VISUAL_MIRROR[firstInvalid] || firstInvalid;
+      $(focusTarget).focus();
+    }
     return false;
   }
   return true;
@@ -2247,6 +2368,47 @@ function onOfferingContextChange() {
 $('scheduleCourse').addEventListener('change', onCourseChange);
 $('scheduleSection').addEventListener('change', onOfferingContextChange);
 $('scheduleSchoolYear').addEventListener('change', onOfferingContextChange);
+
+(function initCourseCombobox() {
+  const searchInput = $('scheduleCourseSearch');
+  searchInput.addEventListener('focus', () => openCourseComboboxPanel());
+  searchInput.addEventListener('input', () => openCourseComboboxPanel());
+  searchInput.addEventListener('blur', () => {
+    // Delayed so a mousedown-selected option (see renderCourseComboboxPanel)
+    // still lands before the panel closes and the display text is restored.
+    setTimeout(() => {
+      closeCourseComboboxPanel();
+      syncCourseComboboxDisplay();
+    }, 150);
+  });
+  searchInput.addEventListener('keydown', (e) => {
+    const panel = $('scheduleCourseList');
+    if (panel.classList.contains('hidden')) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); openCourseComboboxPanel(); }
+      return;
+    }
+    const options = panel.querySelectorAll('.combobox-option');
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!options.length) return;
+      courseComboboxActiveIndex = Math.min(courseComboboxActiveIndex + 1, options.length - 1);
+      updateCourseComboboxActiveOption(options);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!options.length) return;
+      courseComboboxActiveIndex = Math.max(courseComboboxActiveIndex - 1, 0);
+      updateCourseComboboxActiveOption(options);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (courseComboboxActiveIndex >= 0 && courseComboboxFlatList[courseComboboxActiveIndex]) {
+        selectCourseFromCombobox(Number(courseComboboxFlatList[courseComboboxActiveIndex].id));
+      }
+    } else if (e.key === 'Escape') {
+      closeCourseComboboxPanel();
+      syncCourseComboboxDisplay();
+    }
+  });
+})();
 
 COMPONENT_TYPES.forEach((c) => {
   $('scheduleDuration_' + c).addEventListener('change', () => { updateEndTimeFromDuration(c); checkLiveConflict(c); });
