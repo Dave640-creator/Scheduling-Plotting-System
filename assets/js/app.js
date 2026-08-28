@@ -180,6 +180,10 @@ function viewExistingSchedule(scheduleId) {
   $('filterYear').value = '';
   $('filterSemester').value = '';
   $('filterFaculty').value = '';
+  // Year Level filter was just cleared -- refresh Section's option list
+  // back to "all sections" before selecting the target one, or it may not
+  // exist yet in a list still narrowed from a prior Year Level filter.
+  renderFilterOptions();
   $('filterSection').value = scheduleFilters.section;
   activateView('schedules');
   const qs = currentFiltersQueryString();
@@ -705,11 +709,23 @@ function renderFilterOptions() {
   const prevSection = $('filterSection').value;
   const prevFaculty = $('filterFaculty').value;
   const prevSchoolYear = $('filterSchoolYear').value;
-  fillSelect('filterSection', state.sections, (s) => `${s.program_code} ${s.year_level} - Section ${s.section_no}`, 'id', 'All Sections');
+  const yearFilter = $('filterYear').value;
+  // The Section filter must only ever offer sections that actually belong
+  // to the currently selected Year Level filter -- otherwise picking
+  // "2nd Year" still leaves 1st/3rd/4th Year sections choosable, which
+  // produces a filter combination that can never match anything.
+  const sectionsForFilter = yearFilter
+    ? state.sections.filter((s) => String(s.year_level) === String(yearFilter))
+    : state.sections;
+  fillSelect('filterSection', sectionsForFilter, (s) => `${s.program_code} ${s.year_level} - Section ${s.section_no}`, 'id', 'All Sections');
   fillSelect('filterFaculty', state.faculty, (f) => f.faculty_name, 'id', 'All Faculty');
   const schoolYears = [...new Set(state.schedules.map((s) => s.school_year))].sort().reverse();
   $('filterSchoolYear').innerHTML = '<option value="">All School Years</option>' + schoolYears.map((sy) => `<option value="${escapeHtml(sy)}">${escapeHtml(sy)}</option>`).join('');
-  $('filterSection').value = prevSection;
+  // Keep the previous Section pick only if it's still valid for the
+  // (possibly just-changed) Year Level filter; otherwise fall back to
+  // "All Sections" instead of silently keeping a now-mismatched value.
+  const prevStillValid = !prevSection || sectionsForFilter.some((s) => String(s.id) === prevSection);
+  $('filterSection').value = prevStillValid ? prevSection : '';
   $('filterFaculty').value = prevFaculty;
   $('filterSchoolYear').value = prevSchoolYear;
 }
@@ -1801,8 +1817,11 @@ function restoreScheduleFiltersFromParams(params) {
   $('filterSchoolYear').value = scheduleFilters.schoolYear;
   $('filterYear').value = scheduleFilters.year;
   $('filterSemester').value = scheduleFilters.semester;
-  $('filterSection').value = scheduleFilters.section;
   $('filterFaculty').value = scheduleFilters.faculty;
+  // Section's option list depends on Year Level -- refresh it against the
+  // just-restored Year Level before selecting the restored Section.
+  renderFilterOptions();
+  $('filterSection').value = scheduleFilters.section;
 }
 
 function activateView(view) {
@@ -2468,6 +2487,11 @@ COMPONENT_TYPES.forEach((c) => {
 
 ['filterSchoolYear', 'filterYear', 'filterSemester', 'filterSection', 'filterFaculty'].forEach((id) => {
   $(id).addEventListener('change', () => {
+    if (id === 'filterYear') {
+      // Section's own option list depends on Year Level -- refresh it (and
+      // drop a now-invalid prior Section pick) before reading its value.
+      renderFilterOptions();
+    }
     scheduleFilters.schoolYear = $('filterSchoolYear').value;
     scheduleFilters.year = $('filterYear').value;
     scheduleFilters.semester = $('filterSemester').value;
@@ -2480,7 +2504,9 @@ COMPONENT_TYPES.forEach((c) => {
 });
 
 $('clearFiltersBtn').addEventListener('click', () => {
-  $('filterSchoolYear').value = ''; $('filterYear').value = ''; $('filterSemester').value = ''; $('filterSection').value = ''; $('filterFaculty').value = '';
+  $('filterSchoolYear').value = ''; $('filterYear').value = ''; $('filterSemester').value = ''; $('filterFaculty').value = '';
+  renderFilterOptions(); // Year Level is now blank -- widen Section back to "All Sections"
+  $('filterSection').value = '';
   scheduleFilters.schoolYear = ''; scheduleFilters.year = ''; scheduleFilters.semester = ''; scheduleFilters.section = ''; scheduleFilters.faculty = '';
   getTableState('schedulesTable').page = 1;
   renderTables();
