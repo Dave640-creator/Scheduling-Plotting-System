@@ -1278,6 +1278,76 @@ select.field-valid:focus {
 }
 
 /* =====================================================
+   WEEKLY HOURS VALIDATION (Plot Schedule form)
+   Shows Required vs. Scheduled weekly hours for a component (1 unit = 1
+   hour/week for Lecture, 1 unit = 3 hours/week for Laboratory) and whether
+   the selected Day Pattern + Duration combination matches exactly.
+   ===================================================== */
+
+.weekly-hours-summary {
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.weekly-hours-summary:empty {
+  display: none;
+}
+
+.weekly-hours-rows {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-md) var(--spacing-lg);
+  font-size: 13px;
+}
+
+.weekly-hours-row span {
+  color: var(--text-secondary);
+  margin-right: var(--spacing-xs);
+}
+
+.weekly-hours-row strong {
+  color: var(--text-primary);
+}
+
+.weekly-hours-status {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) var(--spacing-lg);
+  font-weight: 700;
+  font-size: 14px;
+  border-radius: var(--radius-md);
+}
+
+.weekly-hours-summary.pending .weekly-hours-rows {
+  background: var(--bg-tertiary);
+}
+
+.weekly-hours-summary.pending .weekly-hours-status {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.weekly-hours-summary.valid .weekly-hours-rows {
+  background: #ecfdf5;
+}
+
+.weekly-hours-summary.valid .weekly-hours-status {
+  background: #ecfdf5;
+  color: #065f46;
+}
+
+.weekly-hours-summary.invalid .weekly-hours-rows {
+  background: #fef2f2;
+}
+
+.weekly-hours-summary.invalid .weekly-hours-status {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+/* =====================================================
    LIVE CONFLICT PREVIEW (Plot Schedule form)
    ===================================================== */
 

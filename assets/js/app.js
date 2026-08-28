@@ -436,129 +436,184 @@ function fillCourseSelectGrouped(id, courses, first = 'Select') {
 }
 
 /* =====================================================
-   SEARCHABLE COURSE COMBOBOX (Plot Schedule)
-   The real <select id="scheduleCourse"> (filled by fillCourseSelectGrouped
-   above) stays the single source of truth for course_id -- every existing
-   piece of JS (getSelectedCourse, onCourseChange, form submit, validation)
-   keeps reading/writing it exactly as before. This panel is purely a
-   friendlier way to set that same select's value, so a course list too
-   long to browse comfortably can be found by typing its code or title.
+   SEARCHABLE COURSE COMBOBOX (reusable)
+   Powers both the Plot Schedule course picker and the Course Assignment
+   course picker: pick a Year Level, then search/select from just that
+   year's courses. The real <select> (filled by fillCourseSelectGrouped)
+   stays the single source of truth for course_id -- every existing piece
+   of JS that reads/writes that select (getSelectedCourse, onCourseChange,
+   form submit, validation) keeps working exactly as before. This panel is
+   purely a friendlier way to set that same select's value, so a course
+   list too long to browse comfortably can be found by typing its code or
+   title. One factory instance is created per picker (see the bottom of
+   this file) so the two pickers never share filter/keyboard-nav state.
    ===================================================== */
 
-let courseComboboxFlatList = [];
-let courseComboboxActiveIndex = -1;
+function createCourseCombobox({ yearLevelId, searchId, listId, selectId }) {
+  let flatList = [];
+  let activeIndex = -1;
 
-function courseComboboxGroups(filterText) {
-  const yearLevel = $('scheduleYearLevel').value;
-  if (!yearLevel) return []; // Course is gated on Year Level -- nothing to offer until one is picked
-  const q = (filterText || '').trim().toLowerCase();
-  const byYear = {};
-  state.courses.forEach((c) => {
-    if (Number(c.year_level) !== Number(yearLevel)) return;
-    if (q) {
-      const haystack = `${c.course_code} ${c.course_title}`.toLowerCase();
-      if (!haystack.includes(q)) return;
-    }
-    const y = c.year_level;
-    if (!byYear[y]) byYear[y] = [];
-    byYear[y].push(c);
-  });
-  return Object.keys(byYear).sort((a, b) => a - b).map((y) => ({
-    label: YEAR_LEVEL_LABELS[y] || `Year ${y}`,
-    courses: byYear[y].slice().sort((a, b) => String(a.course_code).localeCompare(String(b.course_code))),
-  }));
-}
-
-function renderCourseComboboxPanel(filterText) {
-  const panel = $('scheduleCourseList');
-  const groups = courseComboboxGroups(filterText);
-  const selectedId = Number($('scheduleCourse').value) || null;
-  courseComboboxFlatList = [];
-  courseComboboxActiveIndex = -1;
-
-  if (!groups.length) {
-    const yearLevel = $('scheduleYearLevel').value;
-    panel.innerHTML = `<div class="combobox-empty">${yearLevel ? 'No matching courses.' : 'Select a year level first.'}</div>`;
-    return;
+  function groupsFor(filterText) {
+    const yearLevel = $(yearLevelId).value;
+    if (!yearLevel) return []; // Course is gated on Year Level -- nothing to offer until one is picked
+    const q = (filterText || '').trim().toLowerCase();
+    const byYear = {};
+    state.courses.forEach((c) => {
+      if (Number(c.year_level) !== Number(yearLevel)) return;
+      if (q) {
+        const haystack = `${c.course_code} ${c.course_title}`.toLowerCase();
+        if (!haystack.includes(q)) return;
+      }
+      const y = c.year_level;
+      if (!byYear[y]) byYear[y] = [];
+      byYear[y].push(c);
+    });
+    return Object.keys(byYear).sort((a, b) => a - b).map((y) => ({
+      label: YEAR_LEVEL_LABELS[y] || `Year ${y}`,
+      courses: byYear[y].slice().sort((a, b) => String(a.course_code).localeCompare(String(b.course_code))),
+    }));
   }
 
-  // With Course now gated on Year Level, there's normally exactly one
-  // group (the selected year), so the group label is redundant -- only
-  // show it if somehow more than one year level is present.
-  const showGroupLabels = groups.length > 1;
-  panel.innerHTML = groups.map((g) => {
-    const optionsHtml = g.courses.map((c) => {
-      const idx = courseComboboxFlatList.length;
-      courseComboboxFlatList.push(c);
-      const isSelected = selectedId === Number(c.id);
-      return `<div class="combobox-option${isSelected ? ' selected' : ''}" role="option" id="scheduleCourseOption_${idx}" data-index="${idx}" data-course-id="${c.id}">
-        <strong>${escapeHtml(c.course_code)}</strong>
-        <small>${escapeHtml(c.course_title)}</small>
-      </div>`;
+  function renderPanel(filterText) {
+    const panel = $(listId);
+    const grouped = groupsFor(filterText);
+    const selectedId = Number($(selectId).value) || null;
+    flatList = [];
+    activeIndex = -1;
+
+    if (!grouped.length) {
+      const yearLevel = $(yearLevelId).value;
+      panel.innerHTML = `<div class="combobox-empty">${yearLevel ? 'No matching courses.' : 'Select a year level first.'}</div>`;
+      return;
+    }
+
+    // With Course gated on Year Level, there's normally exactly one group
+    // (the selected year), so the group label is redundant -- only show it
+    // if somehow more than one year level is present.
+    const showGroupLabels = grouped.length > 1;
+    panel.innerHTML = grouped.map((g) => {
+      const optionsHtml = g.courses.map((c) => {
+        const idx = flatList.length;
+        flatList.push(c);
+        const isSelected = selectedId === Number(c.id);
+        return `<div class="combobox-option${isSelected ? ' selected' : ''}" role="option" id="${listId}Option_${idx}" data-index="${idx}" data-course-id="${c.id}">
+          <strong>${escapeHtml(c.course_code)}</strong>
+          <small>${escapeHtml(c.course_title)}</small>
+        </div>`;
+      }).join('');
+      return `${showGroupLabels ? `<div class="combobox-group-label">${escapeHtml(g.label)}</div>` : ''}${optionsHtml}`;
     }).join('');
-    return `${showGroupLabels ? `<div class="combobox-group-label">${escapeHtml(g.label)}</div>` : ''}${optionsHtml}`;
-  }).join('');
 
-  panel.querySelectorAll('.combobox-option').forEach((opt) => {
-    // mousedown (not click) fires before the search input's blur handler,
-    // so the selection is committed before blur would otherwise close the
-    // panel and discard the click.
-    opt.addEventListener('mousedown', (e) => {
-      e.preventDefault();
-      selectCourseFromCombobox(Number(opt.dataset.courseId));
+    panel.querySelectorAll('.combobox-option').forEach((opt) => {
+      // mousedown (not click) fires before the search input's blur handler,
+      // so the selection is committed before blur would otherwise close the
+      // panel and discard the click.
+      opt.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        selectCourse(Number(opt.dataset.courseId));
+      });
     });
+  }
+
+  function open() {
+    if ($(searchId).disabled) return; // gated: pick a Year Level first
+    renderPanel($(searchId).value);
+    $(listId).classList.remove('hidden');
+    $(searchId).setAttribute('aria-expanded', 'true');
+  }
+
+  function close() {
+    $(listId).classList.add('hidden');
+    $(searchId).setAttribute('aria-expanded', 'false');
+    activeIndex = -1;
+  }
+
+  function updateActiveOption(options) {
+    options.forEach((opt, i) => opt.classList.toggle('active', i === activeIndex));
+    const activeEl = options[activeIndex];
+    if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
+  }
+
+  /** Sets the hidden source <select>'s value and fires the same 'change' event a native selection would, so every existing course-change listener keeps running exactly as before. */
+  function selectCourse(courseId) {
+    const course = state.courses.find((c) => Number(c.id) === courseId);
+    $(selectId).value = String(courseId);
+    $(searchId).value = course ? `${course.course_code} - ${course.course_title}` : '';
+    close();
+    $(selectId).dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  /** Re-syncs the search input's displayed text with whatever course_id the hidden select currently holds -- used whenever the select's value is set programmatically (edit, cancel/reset) instead of through the panel. */
+  function syncDisplay() {
+    const courseId = Number($(selectId).value) || null;
+    const course = courseId ? state.courses.find((c) => Number(c.id) === courseId) : null;
+    $(searchId).value = course ? `${course.course_code} - ${course.course_title}` : '';
+  }
+
+  /** Enables/disables the Course search input based on whether a Year Level is currently selected -- Course is only pickable once its parent Year Level is set. */
+  function updateAvailability() {
+    const yearLevel = $(yearLevelId).value;
+    const input = $(searchId);
+    input.disabled = !yearLevel;
+    input.placeholder = yearLevel ? 'Search course code or title...' : 'Select a year level first';
+  }
+
+  /** Year Level changed: the previously selected Course (if any) almost certainly no longer belongs to the new year level, so clear it and let the user re-pick from a freshly filtered Course list. Callers that also need to reset downstream fields (Section, Faculty, etc.) do that themselves after calling this. */
+  function onYearLevelChanged() {
+    $(selectId).value = '';
+    syncDisplay();
+    close();
+    updateAvailability();
+  }
+
+  const searchInput = $(searchId);
+  searchInput.addEventListener('focus', open);
+  searchInput.addEventListener('input', open);
+  searchInput.addEventListener('blur', () => {
+    // Delayed so a mousedown-selected option (see renderPanel) still lands
+    // before the panel closes and the display text is restored.
+    setTimeout(() => { close(); syncDisplay(); }, 150);
   });
+  searchInput.addEventListener('keydown', (e) => {
+    const panel = $(listId);
+    if (panel.classList.contains('hidden')) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); open(); }
+      return;
+    }
+    const options = panel.querySelectorAll('.combobox-option');
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!options.length) return;
+      activeIndex = Math.min(activeIndex + 1, options.length - 1);
+      updateActiveOption(options);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!options.length) return;
+      activeIndex = Math.max(activeIndex - 1, 0);
+      updateActiveOption(options);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (activeIndex >= 0 && flatList[activeIndex]) {
+        selectCourse(Number(flatList[activeIndex].id));
+      }
+    } else if (e.key === 'Escape') {
+      close();
+      syncDisplay();
+    }
+  });
+
+  return { open, close, renderPanel, selectCourse, syncDisplay, updateAvailability, onYearLevelChanged };
 }
 
-function openCourseComboboxPanel() {
-  if ($('scheduleCourseSearch').disabled) return; // gated: pick a Year Level first
-  renderCourseComboboxPanel($('scheduleCourseSearch').value);
-  $('scheduleCourseList').classList.remove('hidden');
-  $('scheduleCourseSearch').setAttribute('aria-expanded', 'true');
-}
+// One instance per picker. Created here (rather than lazily) so every other
+// piece of code below can call these directly, same as the old dedicated
+// scheduleCourse-only functions did.
+const scheduleCourseCombobox = createCourseCombobox({ yearLevelId: 'scheduleYearLevel', searchId: 'scheduleCourseSearch', listId: 'scheduleCourseList', selectId: 'scheduleCourse' });
+const assignCourseCombobox = createCourseCombobox({ yearLevelId: 'assignYearLevel', searchId: 'assignCourseSearch', listId: 'assignCourseList', selectId: 'assignCourse' });
 
-function closeCourseComboboxPanel() {
-  $('scheduleCourseList').classList.add('hidden');
-  $('scheduleCourseSearch').setAttribute('aria-expanded', 'false');
-  courseComboboxActiveIndex = -1;
-}
-
-function updateCourseComboboxActiveOption(options) {
-  options.forEach((opt, i) => opt.classList.toggle('active', i === courseComboboxActiveIndex));
-  const activeEl = options[courseComboboxActiveIndex];
-  if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
-}
-
-/** Sets the hidden <select id="scheduleCourse">'s value and fires the same 'change' event a native selection would, so every existing course-change listener (section filtering, faculty options, component blocks) runs exactly as before. */
-function selectCourseFromCombobox(courseId) {
-  const course = state.courses.find((c) => Number(c.id) === courseId);
-  $('scheduleCourse').value = String(courseId);
-  $('scheduleCourseSearch').value = course ? `${course.course_code} - ${course.course_title}` : '';
-  closeCourseComboboxPanel();
-  $('scheduleCourse').dispatchEvent(new Event('change', { bubbles: true }));
-}
-
-/** Re-syncs the search input's displayed text with whatever course_id the hidden select currently holds -- used whenever scheduleCourse's value is set programmatically (edit, cancel/reset) instead of through the panel. */
-function syncCourseComboboxDisplay() {
-  const courseId = Number($('scheduleCourse').value) || null;
-  const course = courseId ? state.courses.find((c) => Number(c.id) === courseId) : null;
-  $('scheduleCourseSearch').value = course ? `${course.course_code} - ${course.course_title}` : '';
-}
-
-/** Enables/disables the Course search input based on whether a Year Level is currently selected -- Course is only pickable once its parent Year Level is set, per the Year Level -> Course -> Section flow. */
-function updateCourseSearchAvailability() {
-  const yearLevel = $('scheduleYearLevel').value;
-  const input = $('scheduleCourseSearch');
-  input.disabled = !yearLevel;
-  input.placeholder = yearLevel ? 'Search course code or title...' : 'Select a year level first';
-}
-
-/** Year Level changed: the previously selected Course (if any) almost certainly no longer belongs to the new year level, so clear the whole downstream chain (Course, Section, Faculty, component blocks) and let the user re-pick from a freshly filtered Course list, per the "reset dependent selections" requirement. */
+/** Year Level changed on the Plot Schedule form: also resets the whole downstream chain (Section, Faculty, component blocks), per the "reset dependent selections" requirement -- the Course Assignment picker has no such downstream chain, so it just calls assignCourseCombobox.onYearLevelChanged() directly (wired below). */
 function onYearLevelChange() {
-  $('scheduleCourse').value = '';
-  syncCourseComboboxDisplay();
-  closeCourseComboboxPanel();
-  updateCourseSearchAvailability();
+  scheduleCourseCombobox.onYearLevelChanged();
   onCourseChange();
 }
 
@@ -667,6 +722,8 @@ function findExistingComponentSchedule(courseId, sectionId, schoolYear, componen
 /** true once the scheduler has clicked "Edit" on an already-saved component, unlocking its fields for this session. Reset whenever the Course/Section/School Year selection changes. */
 const componentUnlocked = { lecture: false, laboratory: false };
 const componentHasConflict = { lecture: false, laboratory: false };
+/** true when the component's currently selected Day Pattern + Duration does NOT total the course's required weekly hours exactly (see WEEKLY HOURS VALIDATION below). Blocks Save the same way componentHasConflict does. */
+const componentHoursInvalid = { lecture: false, laboratory: false };
 
 /** The id of the existing schedule row backing this component right now, if any (used as the PUT target and as the live-conflict "ignore self" id). */
 function existingComponentId(component) {
@@ -701,7 +758,8 @@ function renderSelects() {
   fillSelect('assignFaculty', state.faculty, (f) => f.faculty_name);
   updateComponentBlocks();
   updateFacultyOptions();
-  updateCourseSearchAvailability();
+  scheduleCourseCombobox.updateAvailability();
+  assignCourseCombobox.updateAvailability();
   updateSectionOptions();
 }
 
@@ -937,9 +995,12 @@ function refreshSubmitButtonState() {
     submitBtn.title = 'All required components are already scheduled. Click Edit on a component above to make changes.';
     return;
   }
-  const blocked = COMPONENT_TYPES.some((c) => componentHasConflict[c]);
-  submitBtn.disabled = blocked;
-  submitBtn.title = blocked ? 'Resolve the conflict(s) shown above before saving.' : '';
+  const hasConflict = COMPONENT_TYPES.some((c) => componentHasConflict[c]);
+  const hasBadHours = COMPONENT_TYPES.some((c) => componentHoursInvalid[c]);
+  submitBtn.disabled = hasConflict || hasBadHours;
+  submitBtn.title = hasConflict
+    ? 'Resolve the conflict(s) shown above before saving.'
+    : (hasBadHours ? 'Fix the weekly-hours mismatch shown above before saving.' : '');
 }
 
 /**
@@ -1400,6 +1461,171 @@ function getEffectiveDayPattern(component) {
   return checked.join(',');
 }
 
+/* =====================================================
+   WEEKLY HOURS VALIDATION (Plot Schedule form)
+   School rule: 1 lecture unit = 1 hour of class time per week; 1 laboratory
+   unit = 3 hours of class time per week (see README.md). Weekly hours are
+   the selected Day Pattern's occurrences-per-week multiplied by the
+   meeting duration -- e.g. 3 units, MWF x 1hr = 3 hrs/week, or TTH x 1.5hr
+   = 3 hrs/week. The schedule must match the required weekly hours exactly,
+   not merely meet or exceed them.
+   ===================================================== */
+
+/** Required weekly minutes for one component of a course, or null if that component isn't required (0 units) or no course is selected yet. Mirrors required_minutes() in api/schedules.php. */
+function componentRequiredWeeklyMinutes(course, component) {
+  if (!course) return null;
+  if (component === 'laboratory') {
+    const units = Number(course.lab_units);
+    return units > 0 ? Math.round(units * 3 * 60) : null;
+  }
+  const units = Number(course.lec_units);
+  return units > 0 ? Math.round(units * 60) : null;
+}
+
+/** Number of weekly meeting occurrences for a day pattern -- MWF=3, TTH/MW/TF=2, Saturday=1, a Custom selection = however many day checkboxes are currently checked (null if none). Mirrors schedule_days()/dayPatternOccurrences conventions already used for conflict detection. */
+function dayPatternOccurrences(pattern) {
+  if (!pattern) return null;
+  const days = scheduleDaysFor(pattern);
+  return days.length || null;
+}
+
+/** The component's actual scheduled weekly minutes given its current Day Pattern + Duration selection, or null if not enough is selected yet to compute it. */
+function computeScheduledWeeklyMinutes(component) {
+  const dayPattern = getEffectiveDayPattern(component);
+  const occurrences = dayPatternOccurrences(dayPattern);
+  const durationMin = getDurationMinutes(component);
+  if (!occurrences || !durationMin) return null;
+  return occurrences * durationMin;
+}
+
+function formatHours(totalMinutes) {
+  const hrs = Math.round((totalMinutes / 60) * 100) / 100;
+  return `${hrs} hour${hrs === 1 ? '' : 's'}`;
+}
+
+/**
+ * Hides/disables the preset Day Pattern options (MWF/TTH/MW/TF/Saturday)
+ * that CANNOT reach the course's required weekly hours with ANY of this
+ * component's fixed (non-custom) Duration presets -- e.g. a 2-unit course
+ * needs 40 min/meeting on MWF, which isn't a duration option, so MWF is
+ * disabled for that course. "Custom Days" is always left available since
+ * its occurrence count is chosen live via the day checkboxes, and "Custom"
+ * duration is always left available as a manual escape hatch.
+ */
+function applyDayPatternFiltering(component) {
+  const course = getSelectedCourse();
+  const required = componentRequiredWeeklyMinutes(course, component);
+  const daySelect = $('dayOfWeek_' + component);
+  const durationPresets = [...$('scheduleDuration_' + component).options]
+    .map((o) => o.value)
+    .filter((v) => v !== 'custom')
+    .map(Number);
+
+  Array.from(daySelect.options).forEach((opt) => {
+    if (opt.value === 'Custom') { opt.hidden = false; opt.disabled = false; opt.title = ''; return; }
+    if (required == null) { opt.hidden = false; opt.disabled = false; opt.title = ''; return; }
+    const occurrences = dayPatternOccurrences(opt.value);
+    const fits = occurrences && durationPresets.some((mins) => mins * occurrences === required);
+    opt.disabled = !fits;
+    opt.hidden = !fits;
+    opt.title = fits ? '' : `No duration option totals ${formatHours(required)}/week with this pattern.`;
+  });
+}
+
+/**
+ * Hides/disables the Duration options that don't total the course's
+ * required weekly hours given the CURRENTLY selected Day Pattern -- e.g.
+ * a 3-unit course on TTH only makes sense at 1.5 hours/meeting. "Custom"
+ * duration is always left available as a manual escape hatch.
+ */
+function applyDurationFiltering(component) {
+  const course = getSelectedCourse();
+  const required = componentRequiredWeeklyMinutes(course, component);
+  const dayPattern = getEffectiveDayPattern(component);
+  const occurrences = dayPatternOccurrences(dayPattern);
+  const durationSelect = $('scheduleDuration_' + component);
+
+  Array.from(durationSelect.options).forEach((opt) => {
+    if (opt.value === 'custom') { opt.hidden = false; opt.disabled = false; return; }
+    if (required == null || !occurrences) { opt.hidden = false; opt.disabled = false; return; }
+    const fits = Number(opt.value) * occurrences === required;
+    opt.disabled = !fits;
+    opt.hidden = !fits;
+  });
+}
+
+/**
+ * Fresh-start only: if filtering just made the currently selected Day
+ * Pattern or Duration invalid, switch to the first still-valid option (or
+ * "Custom" as a last resort). Deliberately NOT called when unlocking an
+ * already-saved component for editing, so opening an existing (possibly
+ * legacy) schedule never silently changes its values just from viewing it.
+ */
+function ensureValidComponentDefaults(component) {
+  applyDayPatternFiltering(component);
+  const daySelect = $('dayOfWeek_' + component);
+  if (daySelect.options[daySelect.selectedIndex]?.disabled) {
+    const firstValid = [...daySelect.options].find((o) => !o.disabled);
+    if (firstValid) setDayPatternUI(component, firstValid.value);
+  }
+
+  applyDurationFiltering(component);
+  const durationSelect = $('scheduleDuration_' + component);
+  if (durationSelect.options[durationSelect.selectedIndex]?.disabled) {
+    const firstValid = [...durationSelect.options].find((o) => !o.disabled);
+    if (firstValid) durationSelect.value = firstValid.value;
+  }
+  updateEndTimeFromDuration(component);
+}
+
+/** Renders the "Required weekly hours / Scheduled weekly hours / Status" readout and updates componentHoursInvalid so an INVALID combination blocks Save, mirroring how componentHasConflict blocks it. */
+function renderWeeklyHoursSummary(component) {
+  const el = $('weeklyHoursSummary_' + component);
+  if (!el) return;
+  const course = getSelectedCourse();
+  const required = componentRequiredWeeklyMinutes(course, component);
+
+  if (required == null) {
+    el.innerHTML = '';
+    el.className = 'weekly-hours-summary';
+    componentHoursInvalid[component] = false;
+    return;
+  }
+
+  const scheduled = computeScheduledWeeklyMinutes(component);
+  const isValid = scheduled != null && scheduled === required;
+  componentHoursInvalid[component] = scheduled != null && !isValid;
+
+  const stateClass = scheduled == null ? 'pending' : (isValid ? 'valid' : 'invalid');
+  const statusIcon = scheduled == null ? 'fa-circle-question' : (isValid ? 'fa-circle-check' : 'fa-triangle-exclamation');
+  const statusText = scheduled == null
+    ? 'Set a day pattern and duration to check.'
+    : (isValid
+      ? `VALID - matches the required ${formatHours(required)}/week.`
+      : `INVALID - course requires ${formatHours(required)}/week, but the selected schedule totals ${formatHours(scheduled)}/week.`);
+
+  el.className = 'weekly-hours-summary ' + stateClass;
+  el.innerHTML = `
+    <div class="weekly-hours-rows">
+      <div class="weekly-hours-row"><span>Required weekly hours:</span> <strong>${formatHours(required)}</strong></div>
+      <div class="weekly-hours-row"><span>Scheduled weekly hours:</span> <strong>${scheduled == null ? '\u2013' : formatHours(scheduled)}</strong></div>
+    </div>
+    <div class="weekly-hours-status"><i class="fas ${statusIcon}"></i> ${escapeHtml(statusText)}</div>`;
+}
+
+/** Runs the full weekly-hours pipeline for one component: refresh which Day Pattern/Duration options make sense, show the Required/Scheduled/Status readout, and re-run the existing conflict check -- called from every place that used to just call checkLiveConflict(). */
+function refreshWeeklyHoursUI(component, { autoCorrect = false } = {}) {
+  if (autoCorrect) {
+    ensureValidComponentDefaults(component);
+  } else {
+    applyDayPatternFiltering(component);
+    applyDurationFiltering(component);
+  }
+  renderWeeklyHoursSummary(component);
+  refreshSubmitButtonState();
+  checkLiveConflict(component);
+}
+
 function checkLiveConflict(component) {
   const dayPattern = getEffectiveDayPattern(component);
   const start = $('startTime_' + component).value;
@@ -1434,6 +1660,8 @@ function applySuggestedTime(component, start, end) {
   } else {
     updateEndTimeFromDuration(component);
   }
+  renderWeeklyHoursSummary(component);
+  refreshSubmitButtonState();
   checkLiveConflict(component);
 }
 window.applySuggestedTime = applySuggestedTime;
@@ -1609,12 +1837,16 @@ function cancelEdit(entity) {
   if (cfg.modalTitleId) $(cfg.modalTitleId).textContent = cfg.addTitle;
   if (entity === 'schedules') {
     $('scheduleSchoolYear').value = suggestedSchoolYear();
-    syncCourseComboboxDisplay();
-    updateCourseSearchAvailability();
+    scheduleCourseCombobox.syncDisplay();
+    scheduleCourseCombobox.updateAvailability();
     COMPONENT_TYPES.forEach((c) => { componentUnlocked[c] = false; resetComponentFields(c); });
     updateSectionOptions();
     updateComponentBlocks();
     updateFacultyOptions();
+  }
+  if (entity === 'assignments') {
+    assignCourseCombobox.syncDisplay();
+    assignCourseCombobox.updateAvailability();
   }
 }
 window.cancelEdit = cancelEdit;
@@ -1668,7 +1900,11 @@ function editAssignment(id) {
   const a = state.assignments.find((x) => Number(x.id) === id);
   if (!a) return;
   $('assignFaculty').value = a.faculty_id;
+  const course = state.courses.find((c) => Number(c.id) === Number(a.course_id));
+  $('assignYearLevel').value = course ? course.year_level : '';
+  assignCourseCombobox.updateAvailability();
   $('assignCourse').value = a.course_id;
+  assignCourseCombobox.syncDisplay();
   startEdit('assignments', id);
 }
 window.editAssignment = editAssignment;
@@ -1713,6 +1949,9 @@ function resetComponentFields(component) {
   updateRoomRequirement(component);
   $('conflictPreview_' + component).innerHTML = '';
   componentHasConflict[component] = false;
+  $('weeklyHoursSummary_' + component).innerHTML = '';
+  $('weeklyHoursSummary_' + component).className = 'weekly-hours-summary';
+  componentHoursInvalid[component] = false;
 }
 
 /** Fills one component's field block with an already-saved schedule row's values, for when the scheduler clicks Edit on it. */
@@ -1750,7 +1989,11 @@ function unlockComponentBlock(component) {
     updateRoomOptions(component);
     $('scheduleRoom_' + component).value = existing.room_id || '';
     updateRoomRequirement(component);
-    checkLiveConflict(component);
+    // autoCorrect stays false: this is an already-saved (possibly legacy)
+    // schedule being opened for editing, so its Day Pattern/Duration must
+    // never be silently changed just from viewing it -- only the summary
+    // and conflict check refresh.
+    refreshWeeklyHoursUI(component);
   }
   markFormDirty('scheduleForm');
   startEdit('schedules', editing.schedules || (existing ? existing.id : true));
@@ -1770,9 +2013,9 @@ function editSchedule(id) {
   $('scheduleSchoolYear').value = s.school_year;
   const course = state.courses.find((c) => Number(c.id) === Number(s.course_id));
   $('scheduleYearLevel').value = course ? course.year_level : '';
-  updateCourseSearchAvailability();
+  scheduleCourseCombobox.updateAvailability();
   $('scheduleCourse').value = s.course_id;
-  syncCourseComboboxDisplay();
+  scheduleCourseCombobox.syncDisplay();
   updateSectionOptions();
   $('scheduleSection').value = s.section_id;
   COMPONENT_TYPES.forEach((c) => { componentUnlocked[c] = false; resetComponentFields(c); updateSetTypeOptions(c); });
@@ -1949,6 +2192,7 @@ const validationRules = {
   roomCapacity: { required: true, numeric: true, min: 1, label: 'Capacity', message: 'Room capacity must be a positive number.' },
 
   assignFaculty: { required: true, label: 'Faculty' },
+  assignYearLevel: { required: true, label: 'Year level' },
   assignCourse: { required: true, label: 'Course' },
 
   scheduleSchoolYear: { required: true, pattern: /^\d{4}-\d{4}$/, label: 'School year', message: 'School year must be in the format YYYY-YYYY (e.g. 2026-2027).' },
@@ -1972,7 +2216,7 @@ const formFieldMap = {
   sectionForm: ['sectionYear', 'sectionNo', 'studentCount'],
   facultyForm: ['facultyName', 'maxPreparations'],
   roomForm: ['roomName', 'roomCapacity'],
-  facultyCourseForm: ['assignFaculty', 'assignCourse'],
+  facultyCourseForm: ['assignFaculty', 'assignYearLevel', 'assignCourse'],
   scheduleForm: ['scheduleSchoolYear', 'scheduleYearLevel', 'scheduleCourse', 'scheduleSection', 'scheduleFaculty', 'startTime_lecture', 'endTime_lecture', 'startTime_laboratory', 'endTime_laboratory'],
 };
 
@@ -1983,7 +2227,7 @@ function shakeEl(el) {
 }
 
 /** Fields whose validation "source of truth" element (value + validationRules key) differs from the element the user actually sees/interacts with. Currently just the Course combobox: the value lives on the hidden <select id="scheduleCourse">, but the visible valid/invalid border, shake animation, and focus target belong on #scheduleCourseSearch instead. */
-const FIELD_VISUAL_MIRROR = { scheduleCourse: 'scheduleCourseSearch' };
+const FIELD_VISUAL_MIRROR = { scheduleCourse: 'scheduleCourseSearch', assignCourse: 'assignCourseSearch' };
 
 /** Wraps a text/number/password input in a .field-wrap div with a status-icon slot. Selects are left unwrapped (no icon) to avoid colliding with the native dropdown arrow. */
 function ensureFieldWrap(input) {
@@ -2420,67 +2664,41 @@ function onOfferingContextChange() {
   COMPONENT_TYPES.forEach((c) => { componentUnlocked[c] = false; resetComponentFields(c); updateSetTypeOptions(c); });
   updateComponentBlocks();
   updateFacultyOptions();
-  COMPONENT_TYPES.forEach((c) => checkLiveConflict(c));
+  // Fresh selections (new course/section/school year) -- safe to auto-pick
+  // a valid Day Pattern/Duration default if the reset ones don't fit.
+  COMPONENT_TYPES.forEach((c) => refreshWeeklyHoursUI(c, { autoCorrect: true }));
 }
 
 $('scheduleCourse').addEventListener('change', onCourseChange);
 $('scheduleSection').addEventListener('change', onOfferingContextChange);
 $('scheduleSchoolYear').addEventListener('change', onOfferingContextChange);
 $('scheduleYearLevel').addEventListener('change', onYearLevelChange);
-
-(function initCourseCombobox() {
-  const searchInput = $('scheduleCourseSearch');
-  searchInput.addEventListener('focus', () => openCourseComboboxPanel());
-  searchInput.addEventListener('input', () => openCourseComboboxPanel());
-  searchInput.addEventListener('blur', () => {
-    // Delayed so a mousedown-selected option (see renderCourseComboboxPanel)
-    // still lands before the panel closes and the display text is restored.
-    setTimeout(() => {
-      closeCourseComboboxPanel();
-      syncCourseComboboxDisplay();
-    }, 150);
-  });
-  searchInput.addEventListener('keydown', (e) => {
-    const panel = $('scheduleCourseList');
-    if (panel.classList.contains('hidden')) {
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); openCourseComboboxPanel(); }
-      return;
-    }
-    const options = panel.querySelectorAll('.combobox-option');
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      if (!options.length) return;
-      courseComboboxActiveIndex = Math.min(courseComboboxActiveIndex + 1, options.length - 1);
-      updateCourseComboboxActiveOption(options);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      if (!options.length) return;
-      courseComboboxActiveIndex = Math.max(courseComboboxActiveIndex - 1, 0);
-      updateCourseComboboxActiveOption(options);
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (courseComboboxActiveIndex >= 0 && courseComboboxFlatList[courseComboboxActiveIndex]) {
-        selectCourseFromCombobox(Number(courseComboboxFlatList[courseComboboxActiveIndex].id));
-      }
-    } else if (e.key === 'Escape') {
-      closeCourseComboboxPanel();
-      syncCourseComboboxDisplay();
-    }
-  });
-})();
+$('assignYearLevel').addEventListener('change', () => assignCourseCombobox.onYearLevelChanged());
+// scheduleCourseCombobox / assignCourseCombobox already wired their own
+// search-input focus/input/blur/keydown listeners when created above.
 
 COMPONENT_TYPES.forEach((c) => {
-  $('scheduleDuration_' + c).addEventListener('change', () => { updateEndTimeFromDuration(c); checkLiveConflict(c); });
-  $('startTime_' + c).addEventListener('change', () => { updateEndTimeFromDuration(c); checkLiveConflict(c); });
-  $('endTime_' + c).addEventListener('change', () => checkLiveConflict(c));
+  $('scheduleDuration_' + c).addEventListener('change', () => { updateEndTimeFromDuration(c); refreshWeeklyHoursUI(c); });
+  $('startTime_' + c).addEventListener('change', () => { updateEndTimeFromDuration(c); refreshWeeklyHoursUI(c); });
+  $('endTime_' + c).addEventListener('change', () => refreshWeeklyHoursUI(c));
   $('setType_' + c).addEventListener('change', () => { updateRoomRequirement(c); checkLiveConflict(c); });
   $('scheduleRoom_' + c).addEventListener('change', () => checkLiveConflict(c));
   $('dayOfWeek_' + c).addEventListener('change', () => {
     $('customDaysRow_' + c).classList.toggle('hidden', $('dayOfWeek_' + c).value !== 'Custom');
+    // Day Pattern changed by the user directly -- re-filter Duration
+    // against it, but never auto-correct Day Pattern itself here.
+    applyDurationFiltering(c);
+    const durationSelect = $('scheduleDuration_' + c);
+    if (durationSelect.options[durationSelect.selectedIndex]?.disabled) {
+      const firstValid = [...durationSelect.options].find((o) => !o.disabled);
+      if (firstValid) { durationSelect.value = firstValid.value; updateEndTimeFromDuration(c); }
+    }
+    renderWeeklyHoursSummary(c);
+    refreshSubmitButtonState();
     checkLiveConflict(c);
   });
   $('customDaysRow_' + c).querySelectorAll('input[type="checkbox"]').forEach((cb) => {
-    cb.addEventListener('change', () => checkLiveConflict(c));
+    cb.addEventListener('change', () => refreshWeeklyHoursUI(c));
   });
   updateRoomRequirement(c);
 });

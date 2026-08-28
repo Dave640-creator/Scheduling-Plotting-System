@@ -160,8 +160,18 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
         ? (int)((float)$course['lab_units'] * 3 * 60)
         : (int)((float)$course['lec_units'] * 60);
 
-    if ($weeklyMinutes < $requiredMinutes) {
-        json_response(false, 'Weekly duration is too short. Required: ' . ($requiredMinutes / 60) . ' hour(s) per week. Your pattern gives only ' . ($weeklyMinutes / 60) . ' hour(s) per week.', null, 422);
+    // The schedule must MATCH the required weekly hours exactly -- not just
+    // meet or exceed them. A 2-unit course scheduled for 3 hours/week (e.g.
+    // MWF x 1 hour when only TTH x 1 hour is correct) is just as invalid as
+    // one scheduled for too little, so this checks !=, not just <.
+    if ($weeklyMinutes !== $requiredMinutes) {
+        $tooShort = $weeklyMinutes < $requiredMinutes;
+        json_response(
+            false,
+            'Schedule does not meet the required weekly hours. Required: ' . ($requiredMinutes / 60) . ' hour(s) per week. Selected pattern totals ' . ($weeklyMinutes / 60) . ' hour(s) per week (' . ($tooShort ? 'too short' : 'exceeds the requirement') . ').',
+            null,
+            422
+        );
     }
 
     $facultyStmt = $pdo->prepare('SELECT * FROM faculty WHERE id=?');
