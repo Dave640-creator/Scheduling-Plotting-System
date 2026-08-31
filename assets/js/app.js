@@ -624,6 +624,7 @@ async function loadAll() {
   Object.assign(state, { courses, sections, faculty, rooms, schedules, assignments });
   renderDashboard(dashboard);
   renderActivity();
+  renderDashboardInsights();
   renderTables();
   renderSelects();
   renderFilterOptions();
@@ -689,6 +690,171 @@ function renderActivity() {
         <div class="activity-time">${escapeHtml(formatRelativeTime(i.time))}</div>
       </div>
     </div>`).join('');
+}
+
+/**
+ * Scans every plotted schedule against every other one using the same
+ * findScheduleConflicts() rules engine the Plot Schedule form uses live,
+ * so the dashboard's numbers always agree with what the plotter would
+ * flag. Returns distinct conflicting schedule IDs per conflict type
+ * (not raw pair counts, so "Room Conflicts: 2" means 2 slots need fixing).
+ */
+function scanSystemConflicts() {
+  const byType = { faculty: new Set(), room: new Set(), section: new Set() };
+  const anyConflict = new Set();
+  for (const s of state.schedules) {
+    if (!s.day_of_week || !s.start_time || !s.end_time) continue;
+    const conflicts = findScheduleConflicts(s.day_of_week, s.start_time.slice(0, 5), s.end_time.slice(0, 5), {
+      sectionId: s.section_id, facultyId: s.faculty_id, roomId: s.room_id, ignoreId: s.id,
+      setType: s.set_type, component: s.component, category: s.category,
+      schoolYear: s.school_year, semesterType: s.semester_type,
+    });
+    if (!conflicts.length) continue;
+    anyConflict.add(s.id);
+    for (const c of conflicts) {
+      if (c.type === 'Instructor') byType.faculty.add(s.id);
+      if (c.type === 'Room') byType.room.add(s.id);
+      if (c.type === 'Section') byType.section.add(s.id);
+    }
+  }
+  return { anyConflict, faculty: byType.faculty.size, room: byType.room.size, section: byType.section.size };
+}
+
+/** Faculty currently at or over their max_preparations (distinct courses taught this term). */
+function facultyLoadStats() {
+  const preps = new Map();
+  for (const s of state.schedules) {
+    if (!preps.has(s.faculty_id)) preps.set(s.faculty_id, new Set());
+    preps.get(s.faculty_id).add(s.course_id);
+  }
+  let overloaded = 0;
+  let nearLimit = 0;
+  for (const f of state.faculty) {
+    const count = preps.get(f.id)?.size || 0;
+    const max = Number(f.max_preparations) || 4;
+    if (count >= max) overloaded += 1;
+    else if (count >= max - 1) nearLimit += 1;
+  }
+  return { overloaded, nearLimit };
+}
+
+function renderScheduleHealth() {
+  const el = $('scheduleHealth');
+  if (!el) return;
+  const total = state.schedules.length;
+  const conflicts = scanSystemConflicts();
+  const healthPct = total ? Math.round(100 - (conflicts.anyConflict.size / total) * 100) : 100;
+  const donutColor = healthPct >= 90 ? 'var(--success)' : healthPct >= 70 ? 'var(--accent)' : 'var(--danger)';
+  const healthLabel = healthPct >= 90 ? 'Healthy' : healthPct >= 70 ? 'Needs Review' : 'At Risk';
+
+  const eligibleCount = state.schedules.filter((s) => state.assignments.some((a) => Number(a.faculty_id) === Number(s.faculty_id) && Number(a.course_id) === Number(s.course_id))).length;
+
+  const rows = [
+    { label: 'Faculty Conflicts', value: conflicts.faculty, icon: 'fa-chalkboard-user' },
+    { label: 'Section Conflicts', value: conflicts.section, icon: 'fa-layer-group' },
+    { label: 'Room Conflicts', value: conflicts.room, icon: 'fa-door-open' },
+    { label: 'Eligibility Checks', value: `${eligibleCount} / ${total}`, icon: 'fa-user-check', ok: eligibleCount === total },
+  ];
+
+  el.innerHTML = `
+    <div class="health-wrap">
+      <div class="health-donut" style="--pct:${healthPct}; --donut-color:${donutColor};">
+        <div class="health-donut-inner">
+          <div class="pct">${healthPct}%</div>
+          <div class="pct-label">${escapeHtml(healthLabel)}</div>
+        </div>
+      </div>
+      <div class="health-metrics">
+        ${rows.map((r) => {
+          const isWarn = r.ok === undefined ? Number(r.value) > 0 : !r.ok;
+          return `
+          <div class="health-metric-row">
+            <span class="health-metric-label"><i class="fas ${isWarn ? 'fa-triangle-exclamation warn' : 'fa-circle-check ok'}"></i> ${escapeHtml(r.label)}</span>
+            <span class="health-metric-value ${isWarn ? 'warn' : ''}">${escapeHtml(String(r.value))}</span>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+}
+
+function renderNeedsAttention() {
+  const el = $('needsAttention');
+  if (!el) return;
+  const conflicts = scanSystemConflicts();
+  const unassignedCourses = state.courses.filter((c) => !state.schedules.some((s) => Number(s.course_id) === Number(c.id))).length;
+  const load = facultyLoadStats();
+
+  const items = [];
+  if (conflicts.room > 0) {
+    items.push({ icon: 'fa-door-open', tone: '', title: `${conflicts.room} Room Conflict${conflicts.room === 1 ? '' : 's'}`, sub: 'Overlapping room bookings detected', view: 'schedules' });
+  }
+  if (conflicts.faculty > 0) {
+    items.push({ icon: 'fa-chalkboard-user', tone: '', title: `${conflicts.faculty} Instructor Conflict${conflicts.faculty === 1 ? '' : 's'}`, sub: 'Faculty double-booked at the same time', view: 'schedules' });
+  }
+  if (conflicts.section > 0) {
+    items.push({ icon: 'fa-layer-group', tone: '', title: `${conflicts.section} Section Conflict${conflicts.section === 1 ? '' : 's'}`, sub: 'A section has overlapping classes', view: 'schedules' });
+  }
+  if (unassignedCourses > 0) {
+    items.push({ icon: 'fa-clipboard-question', tone: 'warn-amber', title: `${unassignedCourses} Unplotted Course${unassignedCourses === 1 ? '' : 's'}`, sub: 'Not yet plotted into any schedule', view: 'courses' });
+  }
+  if (load.overloaded > 0) {
+    items.push({ icon: 'fa-user-clock', tone: 'warn-amber', title: `${load.overloaded} Faculty Overloaded`, sub: 'At or above max preparations', view: 'faculty' });
+  } else if (load.nearLimit > 0) {
+    items.push({ icon: 'fa-user-clock', tone: 'warn-info', title: `${load.nearLimit} Faculty Near Limit`, sub: 'One prep away from the max', view: 'faculty' });
+  }
+
+  if (!items.length) {
+    el.innerHTML = `<div class="attention-empty"><i class="fas fa-circle-check"></i><span>All clear — no issues need attention.</span></div>`;
+    return;
+  }
+
+  el.innerHTML = `<div class="attention-list">${items.map((it) => `
+    <button type="button" class="attention-item" data-quick-nav="${it.view}">
+      <div class="attention-icon ${it.tone}"><i class="fas ${it.icon}"></i></div>
+      <div class="attention-text">
+        <div class="attention-title">${escapeHtml(it.title)}</div>
+        <div class="attention-sub">${escapeHtml(it.sub)}</div>
+      </div>
+      <i class="fas fa-chevron-right"></i>
+    </button>`).join('')}</div>`;
+
+  // Newly-added buttons need the same quick-nav wiring the static ones got at load time.
+  el.querySelectorAll('[data-quick-nav]').forEach((btn) => btn.addEventListener('click', () => goToView(btn.dataset.quickNav)));
+}
+
+const WEEKLY_OVERVIEW_DAYS = [
+  { key: 'Monday', label: 'MON' }, { key: 'Tuesday', label: 'TUE' }, { key: 'Wednesday', label: 'WED' },
+  { key: 'Thursday', label: 'THU' }, { key: 'Friday', label: 'FRI' }, { key: 'Saturday', label: 'SAT' },
+];
+
+function renderWeeklyOverview() {
+  const el = $('weeklyOverview');
+  if (!el) return;
+  const conflicts = scanSystemConflicts();
+  const startHour = 7;
+  const endHour = 17;
+
+  let html = `<div class="wk-cell wk-head"></div>${WEEKLY_OVERVIEW_DAYS.map((d) => `<div class="wk-cell wk-head">${d.label}</div>`).join('')}`;
+
+  for (let h = startHour; h <= endHour; h++) {
+    html += `<div class="wk-cell wk-time">${escapeHtml(formatTimeLabel(h * 60))}</div>`;
+    const slotStart = h * 60;
+    const slotEnd = slotStart + 60;
+    for (const day of WEEKLY_OVERVIEW_DAYS) {
+      const matches = state.schedules.filter((s) => daysOverlap(day.key, s.day_of_week) && timesOverlap(minutesToTimeStr(slotStart), minutesToTimeStr(slotEnd), s.start_time.slice(0, 5), s.end_time.slice(0, 5)));
+      let cls = '';
+      if (matches.some((s) => conflicts.anyConflict.has(s.id))) cls = 'wk-conflict';
+      else if (matches.length) cls = 'wk-scheduled';
+      html += `<div class="wk-cell wk-slot ${cls}" title="${matches.length ? escapeHtml(matches.map((m) => `${m.course_code} (${m.program_code} ${m.year_level}-${m.section_no})`).join(', ')) : 'No schedule'}"></div>`;
+    }
+  }
+  el.innerHTML = html;
+}
+
+function renderDashboardInsights() {
+  renderScheduleHealth();
+  renderNeedsAttention();
+  renderWeeklyOverview();
 }
 
 function getSelectedCourse() {

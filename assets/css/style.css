@@ -763,6 +763,286 @@ select:focus-visible,
   margin-top: 2px;
 }
 
+.rules-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(39, 174, 96, 0.1);
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+/* =====================================================
+   DASHBOARD INSIGHTS (weekly overview, health, needs attention)
+   ===================================================== */
+
+.insight-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: var(--spacing-lg);
+  padding: 0 var(--spacing-lg);
+  margin-bottom: var(--spacing-lg);
+  align-items: stretch;
+}
+
+.insight-span2 { grid-column: span 1; }
+
+@media (max-width: 1200px) {
+  .insight-grid { grid-template-columns: 1fr 1fr; }
+  .insight-grid .card:first-child { grid-column: span 2; }
+}
+
+@media (max-width: 768px) {
+  .insight-grid { grid-template-columns: 1fr; }
+  .insight-grid .card:first-child { grid-column: span 1; }
+}
+
+/* --- Weekly overview grid --- */
+
+.weekly-overview-wrap {
+  overflow-x: auto;
+}
+
+.weekly-overview {
+  display: grid;
+  grid-template-columns: 64px repeat(6, 1fr);
+  gap: 3px;
+  min-width: 480px;
+}
+
+.wk-cell {
+  font-size: 11px;
+  border-radius: 4px;
+  padding: 6px 4px;
+  text-align: center;
+  color: var(--text-light);
+}
+
+.wk-head {
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  font-size: 10.5px;
+  padding: 4px;
+  background: none;
+}
+
+.wk-time {
+  font-weight: 600;
+  color: var(--text-light);
+  text-align: right;
+  padding-right: 6px;
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.wk-slot { height: 20px; background: var(--bg-tertiary); position: relative; }
+.wk-slot.wk-scheduled { background: rgba(39, 174, 96, 0.55); }
+.wk-slot.wk-conflict { background: rgba(231, 76, 60, 0.75); }
+.wk-slot.wk-conflict::after {
+  content: '\f071';
+  font-family: 'Font Awesome 6 Free';
+  font-weight: 900;
+  color: white;
+  font-size: 9px;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.weekly-legend {
+  display: flex;
+  gap: var(--spacing-lg);
+  margin-top: var(--spacing-md);
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+
+.legend-scheduled { background: rgba(39, 174, 96, 0.55); }
+.legend-conflict { background: rgba(231, 76, 60, 0.75); }
+.legend-empty { background: var(--bg-tertiary); border: 1px solid var(--border); }
+
+/* --- Schedule health donut --- */
+
+.health-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-lg);
+}
+
+.health-donut {
+  --pct: 100;
+  --donut-color: var(--success);
+  width: 148px;
+  height: 148px;
+  border-radius: 50%;
+  background: conic-gradient(var(--donut-color) calc(var(--pct) * 1%), var(--bg-tertiary) 0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.health-donut-inner {
+  width: 112px;
+  height: 112px;
+  border-radius: 50%;
+  background: white;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.health-donut-inner .pct {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+.health-donut-inner .pct-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.health-metrics {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.health-metric-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  font-size: 13px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.health-metric-row:last-child { border-bottom: none; }
+
+.health-metric-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.health-metric-label i { width: 16px; text-align: center; }
+.health-metric-label i.ok { color: var(--success); }
+.health-metric-label i.warn { color: var(--danger); }
+
+.health-metric-value {
+  font-weight: 800;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.health-metric-value.warn { color: var(--danger); }
+
+/* --- Needs attention --- */
+
+.attention-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.attention-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  background: #fafbfc;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: var(--transition);
+  text-align: left;
+  width: 100%;
+}
+
+.attention-item:hover {
+  border-color: var(--primary-light);
+  background: white;
+  box-shadow: var(--shadow-sm);
+}
+
+.attention-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  flex-shrink: 0;
+  background: rgba(231, 76, 60, 0.1);
+  color: var(--danger);
+}
+
+.attention-icon.warn-amber { background: rgba(243, 156, 18, 0.12); color: var(--accent); }
+.attention-icon.warn-info { background: rgba(52, 152, 219, 0.12); color: var(--info); }
+
+.attention-text { flex: 1; min-width: 0; }
+
+.attention-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.attention-sub {
+  font-size: 12px;
+  color: var(--text-light);
+}
+
+.attention-item i.fa-chevron-right {
+  color: var(--text-light);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.attention-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xl) var(--spacing-md);
+  color: var(--success);
+  text-align: center;
+}
+
+.attention-empty i { font-size: 28px; }
+.attention-empty span { color: var(--text-secondary); font-size: 13px; font-weight: 600; }
+
 .validation-item span {
   color: var(--text-secondary);
   font-size: 14px;
