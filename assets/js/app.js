@@ -1333,23 +1333,26 @@ function updateRoomOptions(component) {
 
 const SET_TYPE_HINTS = {
   set_0: 'SET 0: 🏫 F2F every week (Week 1-4). Always face-to-face -- a room is required.',
-  set_1: 'SET 1: 🏫 F2F Week 1 → 💻 Online Week 2 → 🏫 F2F Week 3 → 💻 Online Week 4 (repeats). Alternates week-to-week with SET 2 (won\'t conflict with it), but still conflicts with any lecture or minor-course schedule, since those meet every week.',
-  set_2: 'SET 2: 💻 Online Week 1 → 🏫 F2F Week 2 → 💻 Online Week 3 → 🏫 F2F Week 4 (repeats). Alternates week-to-week with SET 1 (won\'t conflict with it), but still conflicts with any lecture or minor-course schedule, since those meet every week.',
+  set_1: 'SET 1: 🏫 F2F Week 1 → 💻 Online Week 2 → 🏫 F2F Week 3 → 💻 Online Week 4 (repeats). May share the same room/time as SET 2 (won\'t room-conflict with it), but still conflicts with any lecture or minor-course schedule, since those meet every week -- and instructor/section conflicts against SET 2 are always checked regardless.',
+  set_2: 'SET 2: 💻 Online Week 1 → 🏫 F2F Week 2 → 💻 Online Week 3 → 🏫 F2F Week 4 (repeats). May share the same room/time as SET 1 (won\'t room-conflict with it), but still conflicts with any lecture or minor-course schedule, since those meet every week -- and instructor/section conflicts against SET 1 are always checked regardless.',
 };
 
+// None of the three SET types are ever permanently online -- SET 0 is
+// always face-to-face, and SET 1/SET 2 hybrid rotations still have a
+// face-to-face week every other week -- so a room is required for all of
+// them, not just SET 0.
 const ROOM_HINTS = {
-  set_0: 'SET 0 is always face-to-face, so a room is required.',
-  set_1: 'Optional -- select the room used during this class\'s F2F weeks (Week 1, 3, ...).',
-  set_2: 'Optional -- select the room used during this class\'s F2F weeks (Week 2, 4, ...).',
+  set_0: 'Face-to-face -- Room required.',
+  set_1: 'Hybrid -- Room required during F2F week (Week 1, 3, ...).',
+  set_2: 'Hybrid -- Room required during F2F week (Week 2, 4, ...).',
 };
 
 function updateRoomRequirement(component) {
   const setType = $('setType_' + component).value;
-  const isSet0 = setType === 'set_0';
-  $('roomRequiredMark_' + component).classList.toggle('hidden', !isSet0);
+  $('roomRequiredMark_' + component).classList.remove('hidden');
   $('roomRequiredHint_' + component).classList.remove('hidden');
   $('roomRequiredHint_' + component).textContent = ROOM_HINTS[setType] || '';
-  $('scheduleRoom_' + component).required = isSet0;
+  $('scheduleRoom_' + component).required = true;
   $('setTypeHint_' + component).textContent = SET_TYPE_HINTS[setType] || '';
 }
 
@@ -1550,18 +1553,21 @@ function findScheduleConflicts(dayPattern, start, end, { sectionId, facultyId, r
     if (!daysOverlap(dayPattern, s.day_of_week)) continue;
     if (!timesOverlap(start, end, s.start_time.slice(0, 5), s.end_time.slice(0, 5))) continue;
 
-    const rowIsExempt = isMinorOrLecture(s.component, s.category);
-    if (!setsConflict(setType, s.set_type, newIsExempt, rowIsExempt)) continue;
-
+    // The SET 1/SET 2 alternating-week exception only excuses sharing the
+    // same ROOM (opposite F2F/Online rotation). Instructor and section
+    // conflicts are checked unconditionally below, regardless of SET.
     const timeLabel = `${formatDayPattern(s.day_of_week)} ${s.start_time.slice(0, 5)}-${s.end_time.slice(0, 5)}`;
     if (facultyId && Number(s.faculty_id) === Number(facultyId)) {
       conflicts.push({ type: 'Instructor', name: s.faculty_name, timeLabel });
     }
-    if (roomId && Number(s.room_id) === Number(roomId)) {
-      conflicts.push({ type: 'Room', name: s.room_name, timeLabel });
-    }
     if (sectionId && Number(s.section_id) === Number(sectionId)) {
       conflicts.push({ type: 'Section', name: `${s.program_code} ${s.year_level} - Section ${s.section_no}`, timeLabel });
+    }
+    if (roomId && Number(s.room_id) === Number(roomId)) {
+      const rowIsExempt = isMinorOrLecture(s.component, s.category);
+      if (setsConflict(setType, s.set_type, newIsExempt, rowIsExempt)) {
+        conflicts.push({ type: 'Room', name: s.room_name, timeLabel });
+      }
     }
   }
   return conflicts;
@@ -1629,20 +1635,22 @@ function getEffectiveDayPattern(component) {
 
 /* =====================================================
    WEEKLY HOURS VALIDATION (Plot Schedule form)
-   School rule: 1 lecture unit = 1 hour of class time per week; 1 laboratory
-   unit = 3 hours of class time per week (see README.md). Weekly hours are
-   the selected Day Pattern's occurrences-per-week multiplied by the
-   meeting duration -- e.g. 3 units, MWF x 1hr = 3 hrs/week, or TTH x 1.5hr
-   = 3 hrs/week. The schedule must match the required weekly hours exactly,
-   not merely meet or exceed them.
+   App rule: 1 UNIT = 1 HOUR PER WEEK, for BOTH lecture and laboratory
+   units -- this does NOT follow the common college rule of "1 laboratory
+   unit = 3 hours"; that rule does not apply here (see README.md). Weekly
+   hours are the selected Day Pattern's occurrences-per-week multiplied by
+   the meeting duration -- e.g. 3 units, MWF x 1hr = 3 hrs/week, or TTH x
+   1.5hr = 3 hrs/week, regardless of lecture vs. laboratory. The schedule
+   must match the required weekly hours exactly, not merely meet or exceed
+   them.
    ===================================================== */
 
-/** Required weekly minutes for one component of a course, or null if that component isn't required (0 units) or no course is selected yet. Mirrors required_minutes() in api/schedules.php. */
+/** Required weekly minutes for one component of a course, or null if that component isn't required (0 units) or no course is selected yet. Mirrors the $requiredMinutes calculation in validate_schedule() in api/schedules.php -- keep both in sync if this ever changes. */
 function componentRequiredWeeklyMinutes(course, component) {
   if (!course) return null;
   if (component === 'laboratory') {
     const units = Number(course.lab_units);
-    return units > 0 ? Math.round(units * 3 * 60) : null;
+    return units > 0 ? Math.round(units * 60) : null;
   }
   const units = Number(course.lec_units);
   return units > 0 ? Math.round(units * 60) : null;
@@ -2108,7 +2116,7 @@ function setDayPatternUI(component, dayOfWeek) {
 function resetComponentFields(component) {
   $('setType_' + component).value = 'set_0';
   setDayPatternUI(component, 'MWF');
-  $('scheduleDuration_' + component).value = component === 'laboratory' ? '180' : '60';
+  $('scheduleDuration_' + component).value = '60';
   $('notes_' + component).value = '';
   $('startTime_' + component).value = '';
   updateEndTimeFromDuration(component);

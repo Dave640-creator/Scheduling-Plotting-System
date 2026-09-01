@@ -1560,8 +1560,8 @@ select.field-valid:focus {
 /* =====================================================
    WEEKLY HOURS VALIDATION (Plot Schedule form)
    Shows Required vs. Scheduled weekly hours for a component (1 unit = 1
-   hour/week for Lecture, 1 unit = 3 hours/week for Laboratory) and whether
-   the selected Day Pattern + Duration combination matches exactly.
+   hour/week for BOTH Lecture and Laboratory) and whether the selected Day
+   Pattern + Duration combination matches exactly.
    ===================================================== */
 
 .weekly-hours-summary {

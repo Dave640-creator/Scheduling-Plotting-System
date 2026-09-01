@@ -131,7 +131,7 @@
       </button>
       <button class="nav-item" data-view="assignments">
         <i class="fas fa-user-tie"></i>
-        <span>Faculty Courses</span>
+        <span>Faculty Assignments</span>
       </button>
     </nav>
     <div class="sidebar-footer">
@@ -295,7 +295,7 @@
           </div>
           <div class="validation-item">
             <i class="fas fa-check-circle"></i>
-            <span>Laboratory 1 unit = 3 hours/week</span>
+            <span>1 unit = 1 hour/week (Lecture &amp; Laboratory)</span>
           </div>
           <div class="validation-item">
             <i class="fas fa-check-circle"></i>
@@ -531,9 +531,11 @@
                   <label for="scheduleDuration_laboratory"><i class="fas fa-hourglass-half"></i> Duration <span class="required">*</span></label>
                   <select id="scheduleDuration_laboratory" required>
                     <option value="30">30 Minutes</option>
-                    <option value="60">1 Hour</option>
+                    <option value="60" selected>1 Hour</option>
                     <option value="90">1 Hour 30 Minutes</option>
-                    <option value="180" selected>3 Hours</option>
+                    <option value="120">2 Hours</option>
+                    <option value="150">2 Hours 30 Minutes</option>
+                    <option value="180">3 Hours</option>
                     <option value="custom">Custom (set end time manually)</option>
                   </select>
                   <p class="field-hint hidden" id="customDurationHint_laboratory">Custom: pick your own End Time below instead of a fixed duration.</p>

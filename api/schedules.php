@@ -149,15 +149,21 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
         json_response(false, 'This course has no laboratory component.', null, 422);
     }
 
-    // Important correction: 1 lab unit = 3 hours PER WEEK, not always 3 hours in one day.
-    // MWF 1 hour = 3 hours/week, TTH 1.5 hours = 3 hours/week, etc.
+    // Single source of truth for weekly-hour requirements in this app:
+    // 1 UNIT = 1 HOUR PER WEEK, for BOTH lecture and laboratory units. This
+    // deliberately does NOT follow the common college rule of "1 laboratory
+    // unit = 3 hours"; that rule does not apply here. A 3-unit course is
+    // required to total 3 hours/week regardless of component -- e.g. MWF x
+    // 1 hour = 3 hours/week, or TTH x 1.5 hours = 3 hours/week. Mirrored in
+    // assets/js/app.js's componentRequiredWeeklyMinutes() -- keep both in
+    // sync if this ever changes.
     $meetingMinutes = minutes_between($start, $end);
     $dayCount = count(schedule_days($d['day_of_week']));
     if ($d['day_of_week'] === 'Custom') $dayCount = 1;
     $weeklyMinutes = $meetingMinutes * $dayCount;
 
     $requiredMinutes = $d['component'] === 'laboratory'
-        ? (int)((float)$course['lab_units'] * 3 * 60)
+        ? (int)((float)$course['lab_units'] * 60)
         : (int)((float)$course['lec_units'] * 60);
 
     // The schedule must MATCH the required weekly hours exactly -- not just
@@ -279,11 +285,18 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
         json_response(false, 'Faculty preparation limit exceeded. Maximum is ' . $maxPreparations . ' unique course preparation(s) for this faculty for ' . $d['school_year'] . ' (' . $course['semester_type'] . ').', null, 422);
     }
 
-    // SET logic: SET 0 is always face-to-face, so room is required.
-    // SET 1 and SET 2 are hybrid classifications. The system stores the set but does not simulate week-by-week online/F2F rotation.
+    // SET logic: SET 0 is always face-to-face, so a room is required. SET 1
+    // and SET 2 are hybrid, NOT permanently online -- they still have a
+    // face-to-face week every other week, so a room is required for them
+    // too. The system stores the set but does not simulate week-by-week
+    // online/F2F rotation; the room on file is the one used during that
+    // component's F2F weeks.
     $hasRoom = !empty($d['room_id']);
-    if ($d['set_type'] === 'set_0' && !$hasRoom) {
-        json_response(false, 'Room is required for SET 0 because it is always face-to-face.', null, 422);
+    if (!$hasRoom) {
+        $roomRequiredReason = $d['set_type'] === 'set_0'
+            ? 'Room is required for SET 0 because it is always face-to-face.'
+            : 'Room is required for ' . (SET_TYPE_LABELS[$d['set_type']] ?? $d['set_type']) . ' because it still meets face-to-face during its F2F week.';
+        json_response(false, $roomRequiredReason, null, 422);
     }
 
     $room = null;
@@ -325,9 +338,11 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
     foreach ($existing as $row) {
         if (!schedules_share_day($row['day_of_week'], $d['day_of_week'])) continue;
 
-        $rowIsExempt = is_minor_or_lecture($row['component'], $row['course_category']);
-        if (!sets_conflict($d['set_type'], $row['set_type'], $newIsExempt, $rowIsExempt)) continue;
-
+        // The SET 1/SET 2 alternating-week exception is a PHYSICAL ROOM
+        // exception only (rule: opposite F2F/Online rotation means the room
+        // is free on alternating weeks). It must never be used to bypass an
+        // instructor or section double-booking -- those are checked here
+        // unconditionally, regardless of which SETs are involved.
         if ((int)$row['faculty_id'] === (int)$d['faculty_id']) {
             json_response(false, 'Instructor conflict: this faculty already has a class at the selected day/time pattern.', null, 409);
         }
@@ -335,7 +350,10 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
             json_response(false, 'Section conflict: this section already has a class at the selected day/time pattern.', null, 409);
         }
         if ($hasRoom && !empty($row['room_id']) && (int)$row['room_id'] === (int)$d['room_id']) {
-            json_response(false, 'Room conflict: this room is already occupied at the selected day/time pattern.', null, 409);
+            $rowIsExempt = is_minor_or_lecture($row['component'], $row['course_category']);
+            if (sets_conflict($d['set_type'], $row['set_type'], $newIsExempt, $rowIsExempt)) {
+                json_response(false, 'Room conflict: this room is already occupied at the selected day/time pattern.', null, 409);
+            }
         }
     }
 }

@@ -29,15 +29,14 @@ Institute Head only.
 ## Validations Applied
 - Instructor conflict checking
 - Section/block conflict checking
-- Room conflict checking for face-to-face classes only
-- Online classes do not require room assignment
+- Room conflict checking (SET 0 always; SET 1/SET 2 checked against each other too, except the two may share the same room/time since their F2F weeks alternate)
+- SET 0, SET 1, and SET 2 all require a room -- none of them is permanently online; SET 1/SET 2 are hybrid with an alternating F2F week
 - Laboratory component must use laboratory room
 - Lecture component must use lecture room
 - Room capacity must be enough for section student count
 - Faculty can only teach assigned/allowed courses
 - Faculty has maximum of 4 preparations only
-- Laboratory duration follows: 1 lab unit = 3 hours per week
-- Lecture duration follows: 1 lecture unit = 1 hour per week
+- Weekly hours follow: 1 unit = 1 hour per week, for BOTH Lecture and Laboratory units (this app does NOT use the common "1 laboratory unit = 3 hours" rule)
 
 ## Setup in XAMPP
 1. Copy the `ics_plotting_system` folder to:
@@ -121,13 +120,13 @@ Plot Schedule now has:
 - A **live conflict preview** that checks Instructor/Room/Section conflicts as you fill out the form, before you hit Save (advisory only -- the backend still re-validates everything on Save, which remains the authoritative check)
 - **Suggested alternative times** shown automatically when a conflict is detected
 
-The conflict rule itself was corrected to match how SET 0/1/2 actually work:
-- **SET 0** is always face-to-face, so it conflicts with anything at the same room/instructor/section/time
-- **The same alternating set** (SET 1 + SET 1, or SET 2 + SET 2) always lands on the same week, so it conflicts
-- **SET 1 + SET 2** alternate on opposite weeks and are NOT physically simultaneous, so they do **not** conflict by default
-- **Exception:** if either side is a lecture component, or a non-major (minor) course, it still conflicts even when SET 1 + SET 2 -- lab components of major courses are the ones that genuinely rotate week-to-week
+The conflict rule itself was corrected to match how SET 0/1/2 actually work. **Important: this rule governs ROOM conflicts only.** Instructor and section conflicts are always checked independently, at the same day/time, regardless of which SETs are involved -- the SET 1/SET 2 alternation never excuses a faculty or a section being double-booked, only a room being shared.
+- **SET 0** is always face-to-face, so it room-conflicts with anything at the same room/time
+- **The same alternating set** (SET 1 + SET 1, or SET 2 + SET 2) always lands on the same week, so it room-conflicts
+- **SET 1 + SET 2** alternate on opposite weeks and are NOT physically simultaneous, so they do **not** room-conflict by default
+- **Exception:** if either side is a lecture component, or a non-major (minor) course, it still room-conflicts even when SET 1 + SET 2 -- lab components of major courses are the ones that genuinely rotate week-to-week
 
-This rule lives in `is_minor_or_lecture()` and `sets_conflict()` in `api/schedules.php` (authoritative) and is mirrored in `assets/js/app.js` (`isMinorOrLecture()` / `setsConflict()`) for the live preview only.
+This rule lives in `is_minor_or_lecture()` and `sets_conflict()` in `api/schedules.php` (authoritative) and is mirrored in `assets/js/app.js` (`isMinorOrLecture()` / `setsConflict()`) for the live preview only. Both gate the room-conflict check only -- instructor/section conflicts run unconditionally in the same loop.
 
 ## Term-Scoped Conflicts + Availability Toggle (2026-08-01)
 Two correctness fixes and one new feature:
@@ -161,6 +160,15 @@ New "Timetables" view (sidebar, under Operations) generates a proper printable w
 - Grid rows auto-scale to whatever time range the selected schedules actually span (not a fixed clock range), so nothing gets clipped.
 - Print button here produces a clean grid without the sidebar/buttons -- same as the Schedules list's print button.
 - Fixed a real print bug found while building this: `window.print()` previously rendered *every* view stacked on top of each other on the printed page, not just the one you were looking at.
+
+## Scheduling Logic Audit (2026-09-01)
+Two confirmed logic bugs found and fixed in `api/schedules.php` and `assets/js/app.js`:
+- **Instructor/section conflicts were incorrectly skipped for SET 1 + SET 2.** The SET 1/SET 2 "alternating weeks, no conflict" exception was being applied as a blanket gate before checking instructor, section, *and* room conflicts -- so a faculty (or section) double-booked between a SET 1 class and a SET 2 class at the same day/time went undetected. The exception is a physical-room-sharing rule only; instructor and section conflicts are now always checked at the same day/time regardless of SET, while the SET 1/SET 2 exception continues to apply to the room check only.
+- **Room was only required for SET 0.** SET 1 and SET 2 are hybrid, not permanently online -- both still have a face-to-face week where a room is needed. Room is now a required field for all three SET types, with messaging that matches: "Face-to-face -- Room required." (SET 0) and "Hybrid -- Room required during F2F week." (SET 1/SET 2).
+
+The unit-to-hours rule (1 unit = 1 hour/week for both Lecture and Laboratory, no laboratory ×3 multiplier) was already correctly implemented in both files prior to this audit and required no change.
+
+Also removed a stale, older duplicate copy of the entire app that had somehow ended up nested inside itself (`ics_plotting_system/ics_plotting_system/`, previously tracked in git) -- it predated several fixes (dashboard overview section, the corrected unit rule) and was not the version actually being served.
 
 ## Known Remaining Gaps (not yet implemented)
 - Editing a course's units/year-level/semester after schedules already exist for it is not retroactively re-validated against the DB rules -- the app only shows a toast telling you how many schedules to go re-check manually in the Schedules tab
