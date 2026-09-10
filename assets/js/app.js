@@ -515,9 +515,17 @@ function createCourseCombobox({ yearLevelId, searchId, listId, selectId }) {
     });
   }
 
-  function open() {
+  /**
+   * `forFocus=true` (used when the field is clicked/focused, not typed
+   * into) shows the FULL course list instead of filtering by the field's
+   * current display text -- that text is "CODE - Title" (with a dash),
+   * which never matches any course's own code+title and used to make the
+   * panel show "No matching courses" every time you clicked back into an
+   * already-filled field.
+   */
+  function open(forFocus = false) {
     if ($(searchId).disabled) return; // gated: pick a Year Level first
-    renderPanel($(searchId).value);
+    renderPanel(forFocus ? '' : $(searchId).value);
     $(listId).classList.remove('hidden');
     $(searchId).setAttribute('aria-expanded', 'true');
   }
@@ -567,8 +575,15 @@ function createCourseCombobox({ yearLevelId, searchId, listId, selectId }) {
   }
 
   const searchInput = $(searchId);
-  searchInput.addEventListener('focus', open);
-  searchInput.addEventListener('input', open);
+  searchInput.addEventListener('focus', () => { open(true); searchInput.select(); });
+  // The input stays focused after picking an option (see the mousedown
+  // handler above, which deliberately prevents the blur that would
+  // otherwise close the panel before the click registers). Because it's
+  // already focused, clicking the SAME field again afterward does NOT
+  // fire a new 'focus' event in the browser -- so without this separate
+  // 'click' listener, the panel could never be reopened a second time.
+  searchInput.addEventListener('click', () => { open(true); searchInput.select(); });
+  searchInput.addEventListener('input', () => open(false));
   searchInput.addEventListener('blur', () => {
     // Delayed so a mousedown-selected option (see renderPanel) still lands
     // before the panel closes and the display text is restored.
@@ -962,6 +977,144 @@ let ttMode = 'section';
 const TT_DAY_COLUMNS = { Monday: 2, Tuesday: 3, Wednesday: 4, Thursday: 5, Friday: 6, Saturday: 7, Sunday: 8 };
 const TT_DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
+/**
+ * Determines a schedule's plotter-facing modality: F2F or ONLINE.
+ *
+ * This does not add a new field or change any scheduling/validation rule --
+ * it reuses the same signal the app already relies on elsewhere (room_name
+ * present vs absent, see the pre-existing `s.room_name || 'Online'` fallback
+ * that was already in the timetable block). We're only making that existing
+ * signal visible and consistent across the timetable, schedule table, and
+ * print/export output.
+ */
+function scheduleModality(s) {
+  return s.room_name ? { label: 'F2F', room: s.room_name } : { label: 'ONLINE', room: null };
+}
+
+/**
+ * Short display label and full rotation explanation per SET type, used to
+ * tag F2F schedules that are actually alternating (SET 1/SET 2) rather
+ * than permanently face-to-face (SET 0). Mirrors the exact rotation
+ * already described in SET_TYPE_HINTS below -- this does not change or
+ * add any scheduling rule, it only surfaces the existing one on the
+ * timetable/schedule table so the plotter sees it without opening the
+ * Plot Schedule form.
+ */
+const SET_LABELS_SHORT = { set_0: 'SET 0', set_1: 'SET 1', set_2: 'SET 2' };
+const SET_ROTATION_SUMMARY = {
+  set_0: '',
+  set_1: 'SET 1 \u2014 F2F \u2194 Online Rotation',
+  set_2: 'SET 2 \u2014 Online \u2194 F2F Rotation',
+};
+
+/** HTML for the small "SET 1"/"SET 2" tag shown next to a F2F modality badge, with the full rotation as its hover tooltip. Empty string for SET 0 (no rotation to call out). */
+function setRotationTagHtml(setType) {
+  if (setType !== 'set_1' && setType !== 'set_2') return '';
+  return ` <span class="tt-set-tag" title="${escapeHtml(SET_ROTATION_SUMMARY[setType])}">${SET_LABELS_SHORT[setType]}</span>`;
+}
+
+/**
+ * Per-SET display info for the timetable's schedule-block cards: a badge
+ * label, an icon, and a rotation phrase. Used only by the timetable grid
+ * (renderTimetable/renderTtBlock) -- separate from SET_ROTATION_SUMMARY
+ * above (which feeds the compact inline tag shared with the Schedules
+ * table) so each view can carry the wording/detail it needs without the
+ * two interfering with each other.
+ */
+const SET_DISPLAY = {
+  set_0: { label: 'SET 0', icon: '\u{1F3EB}', rotation: 'F2F' },
+  set_1: { label: 'SET 1', icon: '\u{1F504}', rotation: 'F2F \u2194 Online' },
+  set_2: { label: 'SET 2', icon: '\u{1F504}', rotation: 'Online \u2194 F2F' },
+};
+
+/** Pixel height of one 30-minute timetable row. Must match the row track size set in renderTimetable's gridTemplateRows. */
+const TT_ROW_HEIGHT = 22;
+/** Estimated rendered height (px) of one text line inside a schedule block, used to work out how many lines fit before truncating -- this is what keeps a card's content fully inside its own calculated time area instead of clipping at the next row. */
+const TT_BLOCK_LINE_HEIGHT = 10.5;
+/** Total vertical padding (px) budget inside a schedule block, subtracted before dividing by TT_BLOCK_LINE_HEIGHT. */
+const TT_BLOCK_VPAD = 2;
+
+/**
+ * Assigns each entry in a single day-column a `lane` (0-based horizontal
+ * slot) and `laneCount` (how many lanes its overlap cluster needs), so
+ * overlapping schedules -- in practice a SET 1 + SET 2 pair sharing the
+ * same room/time slot on their opposite rotation weeks -- render side by
+ * side instead of stacking on top of each other. Non-overlapping entries
+ * always get lane 0 / laneCount 1, i.e. full width, unchanged from before.
+ */
+function layoutDayBlocks(entries) {
+  const sorted = [...entries].sort((a, b) => a.startSlot - b.startSlot || a.endSlot - b.endSlot);
+  const clusters = [];
+  let current = [];
+  let clusterEnd = -Infinity;
+  sorted.forEach((e) => {
+    if (current.length && e.startSlot >= clusterEnd) {
+      clusters.push(current);
+      current = [];
+      clusterEnd = -Infinity;
+    }
+    current.push(e);
+    clusterEnd = Math.max(clusterEnd, e.endSlot);
+  });
+  if (current.length) clusters.push(current);
+
+  const result = [];
+  clusters.forEach((cluster) => {
+    const laneEnds = [];
+    cluster.forEach((e) => {
+      let lane = laneEnds.findIndex((end) => end <= e.startSlot);
+      if (lane === -1) { lane = laneEnds.length; laneEnds.push(e.endSlot); }
+      else laneEnds[lane] = e.endSlot;
+      e.lane = lane;
+    });
+    const laneCount = laneEnds.length;
+    cluster.forEach((e) => { e.laneCount = laneCount; result.push(e); });
+  });
+  return result;
+}
+
+/**
+ * Builds one schedule-block card. Full-width cards (laneCount 1) show up
+ * to 4 lines (course, person, SET badge, modality+room); split cards
+ * (laneCount > 1, e.g. a SET1/SET2 pair) drop the person line to save
+ * horizontal room and show course/SET/rotation instead. Either way, the
+ * number of lines actually shown is capped by how many fit in the card's
+ * own height (span * TT_ROW_HEIGHT) so content never clips past its
+ * calculated time area.
+ */
+function renderTtBlock(entry, mode) {
+  const { s, startSlot, endSlot, lane, laneCount } = entry;
+  const top = startSlot * TT_ROW_HEIGHT;
+  const height = (endSlot - startSlot) * TT_ROW_HEIGHT;
+  const widthPct = 100 / laneCount;
+  const leftPct = lane * widthPct;
+
+  const subLabel = mode === 'section' ? s.faculty_name : `${s.program_code} ${s.year_level}-${s.section_no}`;
+  const modality = scheduleModality(s);
+  const setInfo = SET_DISPLAY[s.set_type] || SET_DISPLAY.set_0;
+  const modalityLine = modality.label === 'F2F'
+    ? `${setInfo.icon} ${escapeHtml(setInfo.rotation)}${modality.room ? ' \u2022 ' + escapeHtml(modality.room) : ''}`
+    : `${setInfo.icon} ${escapeHtml(setInfo.rotation)}`;
+
+  const lines = [
+    { cls: 'tt-block-title', html: escapeHtml(s.course_code) },
+    ...(laneCount > 1 ? [] : [{ cls: 'tt-block-sub', html: escapeHtml(subLabel) }]),
+    { cls: `tt-block-set tt-set-${s.set_type}`, html: escapeHtml(setInfo.label) },
+    { cls: 'tt-block-modality-line', html: modalityLine },
+  ];
+  const maxLines = Math.max(1, Math.floor((height - TT_BLOCK_VPAD) / TT_BLOCK_LINE_HEIGHT));
+  const shown = lines.slice(0, Math.min(lines.length, maxLines));
+
+  const tooltip = `${s.course_code} - ${s.course_title} (${modality.label}${s.set_type !== 'set_0' ? ' \u2014 ' + SET_ROTATION_SUMMARY[s.set_type] : ''})`;
+  const leftStyle = laneCount > 1 ? `${leftPct}%` : '0';
+  const widthStyle = laneCount > 1 ? `${widthPct}%` : '100%';
+  const dividerStyle = laneCount > 1 && lane < laneCount - 1 ? 'border-right:2px solid var(--bg-secondary);' : '';
+
+  return `<div class="tt-block ${s.component === 'laboratory' ? 'lab' : ''}" data-set="${escapeHtml(s.set_type)}" style="top:${top}px;height:${height}px;left:${leftStyle};width:${widthStyle};${dividerStyle}" title="${escapeHtml(tooltip)}">
+    ${shown.map((l) => `<div class="${l.cls}">${l.html}</div>`).join('')}
+  </div>`;
+}
+
 function renderTimetableSelectors() {
   const prevSY = $('ttSchoolYear').value;
   const prevSem = $('ttSemester').value;
@@ -1030,7 +1183,7 @@ function renderTimetable() {
 
   $('ttGrid').style.display = 'grid';
   $('ttGrid').style.gridTemplateColumns = '70px repeat(7, 1fr)';
-  $('ttGrid').style.gridTemplateRows = `36px repeat(${totalSlots}, 22px)`;
+  $('ttGrid').style.gridTemplateRows = `36px repeat(${totalSlots}, ${TT_ROW_HEIGHT}px)`;
 
   let html = '<div class="tt-corner">Time</div>';
   TT_DAY_ORDER.forEach((d) => { html += `<div class="tt-day-header">${d.slice(0, 3)}</div>`; });
@@ -1044,22 +1197,35 @@ function renderTimetable() {
     }
   }
 
+  // Group schedules by day column first (instead of dropping each block
+  // straight onto the background grid) so overlapping entries -- a SET 1 +
+  // SET 2 pair sharing the same room/time on opposite rotation weeks -- can
+  // be laid out side by side in the same calculated time area, rather than
+  // stacking on top of each other. Each day gets one grid item spanning
+  // the full row range; the actual blocks are positioned inside it with
+  // plain top/height/left/width math, in exact multiples of TT_ROW_HEIGHT,
+  // so the 8-9 row (and every other row) stays exactly the same height and
+  // Mon-Sun stay aligned, and a card's own height always matches its
+  // calculated time span (no more clipping at the next hour's line).
+  const dayEntries = {};
   filtered.forEach((s) => {
     const days = scheduleDaysFor(s.day_of_week);
     const startMin = timeStrToMinutes(s.start_time.slice(0, 5));
     const endMin = timeStrToMinutes(s.end_time.slice(0, 5));
-    const startRow = 2 + Math.max(0, Math.floor((startMin - minStart) / 30));
-    const endRow = 2 + Math.min(totalSlots, Math.ceil((endMin - minStart) / 30));
+    const startSlot = Math.max(0, Math.floor((startMin - minStart) / 30));
+    const endSlot = Math.min(totalSlots, Math.ceil((endMin - minStart) / 30));
     days.forEach((d) => {
       const col = TT_DAY_COLUMNS[d];
       if (!col) return; // skip unrecognized/legacy literal 'Custom' data
-      const subLabel = ttMode === 'section' ? s.faculty_name : `${s.program_code} ${s.year_level}-${s.section_no}`;
-      html += `<div class="tt-block ${s.component === 'laboratory' ? 'lab' : ''}" style="grid-row:${startRow} / ${endRow};grid-column:${col};" title="${escapeHtml(s.course_code)} - ${escapeHtml(s.course_title)}">
-        <div class="tt-block-title">${escapeHtml(s.course_code)}</div>
-        <div class="tt-block-sub">${escapeHtml(subLabel)}</div>
-        <div class="tt-block-sub">${escapeHtml(s.room_name || 'Online')}</div>
-      </div>`;
+      (dayEntries[col] = dayEntries[col] || []).push({ s, startSlot, endSlot });
     });
+  });
+
+  Object.keys(dayEntries).forEach((col) => {
+    const laidOut = layoutDayBlocks(dayEntries[col]);
+    html += `<div class="tt-day-col" style="grid-row:2 / span ${totalSlots};grid-column:${col};">`;
+    laidOut.forEach((entry) => { html += renderTtBlock(entry, ttMode); });
+    html += '</div>';
   });
 
   $('ttGrid').innerHTML = html;
@@ -1332,9 +1498,9 @@ function updateRoomOptions(component) {
 }
 
 const SET_TYPE_HINTS = {
-  set_0: 'SET 0: 🏫 F2F every week (Week 1-4). Always face-to-face -- a room is required.',
-  set_1: 'SET 1: 🏫 F2F Week 1 → 💻 Online Week 2 → 🏫 F2F Week 3 → 💻 Online Week 4 (repeats). May share the same room/time as SET 2 (won\'t room-conflict with it), but still conflicts with any lecture or minor-course schedule, since those meet every week -- and instructor/section conflicts against SET 2 are always checked regardless.',
-  set_2: 'SET 2: 💻 Online Week 1 → 🏫 F2F Week 2 → 💻 Online Week 3 → 🏫 F2F Week 4 (repeats). May share the same room/time as SET 1 (won\'t room-conflict with it), but still conflicts with any lecture or minor-course schedule, since those meet every week -- and instructor/section conflicts against SET 1 are always checked regardless.',
+  set_0: 'SET 0: 🏫 Always F2F, every meeting. A room is required.',
+  set_1: 'SET 1: 🏫 F2F / Online Rotation -- starts F2F, then alternates continuously (F2F → Online → F2F → ...). May share the same room/time as SET 2 (won\'t room-conflict with it), but still conflicts with any lecture or minor-course schedule, since those meet every week -- and instructor/section conflicts against SET 2 are always checked regardless.',
+  set_2: 'SET 2: 💻 Online / F2F Rotation -- starts Online, then alternates continuously (Online → F2F → Online → ...). May share the same room/time as SET 1 (won\'t room-conflict with it), but still conflicts with any lecture or minor-course schedule, since those meet every week -- and instructor/section conflicts against SET 1 are always checked regardless.',
 };
 
 // None of the three SET types are ever permanently online -- SET 0 is
@@ -1343,8 +1509,8 @@ const SET_TYPE_HINTS = {
 // them, not just SET 0.
 const ROOM_HINTS = {
   set_0: 'Face-to-face -- Room required.',
-  set_1: 'Hybrid -- Room required during F2F week (Week 1, 3, ...).',
-  set_2: 'Hybrid -- Room required during F2F week (Week 2, 4, ...).',
+  set_1: 'F2F / Online Rotation -- Room required for its recurring F2F meeting.',
+  set_2: 'Online / F2F Rotation -- Room required for its recurring F2F meeting.',
 };
 
 function updateRoomRequirement(component) {
@@ -1920,7 +2086,13 @@ const SCHEDULES_TABLE_COLUMNS = [
   { key: 'section_no', label: 'Section', searchValue: (s) => `${s.program_code} ${s.year_level} ${s.section_no}`, render: (s) => `${escapeHtml(s.program_code)} ${s.year_level} - ${escapeHtml(s.section_no)}` },
   { key: 'faculty_name', label: 'Faculty' },
   { key: 'set_type', label: 'Set' },
-  { key: 'room_name', label: 'Room', render: (s) => escapeHtml(s.room_name || 'No room selected') },
+  { key: 'modality', label: 'Modality', searchValue: (s) => scheduleModality(s).label, render: (s) => {
+      const m = scheduleModality(s);
+      const setTag = setRotationTagHtml(s.set_type);
+      return m.label === 'F2F'
+        ? `<span class="tt-modality tt-modality-f2f">F2F</span>${setTag} &bull; ${escapeHtml(m.room)}`
+        : `<span class="tt-modality tt-modality-online">ONLINE</span>${setTag}`;
+    } },
 ];
 
 /**

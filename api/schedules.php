@@ -157,9 +157,15 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
     // 1 hour = 3 hours/week, or TTH x 1.5 hours = 3 hours/week. Mirrored in
     // assets/js/app.js's componentRequiredWeeklyMinutes() -- keep both in
     // sync if this ever changes.
+    // $dayCount must always come from the actual parsed day list -- the
+    // frontend's "Custom Days" picker sends the real selected days as a
+    // comma-separated list (e.g. "Monday,Wednesday,Friday"), never the
+    // literal string 'Custom', so a stale special-case forcing dayCount to
+    // 1 for that literal would silently undercount a direct API call's
+    // Custom Days weekly hours (e.g. Mon/Wed/Fri x 1 hour must be 3
+    // hours/week, not 1).
     $meetingMinutes = minutes_between($start, $end);
     $dayCount = count(schedule_days($d['day_of_week']));
-    if ($d['day_of_week'] === 'Custom') $dayCount = 1;
     $weeklyMinutes = $meetingMinutes * $dayCount;
 
     $requiredMinutes = $d['component'] === 'laboratory'

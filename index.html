@@ -371,6 +371,10 @@
               </label>
               <select id="scheduleSection" required></select>
             </div>
+          </div>
+
+          <div class="form-section" id="facultyAssignmentSection">
+            <div class="form-section-title"><i class="fas fa-chalkboard-user"></i> Faculty Assignment</div>
 
             <div class="form-group">
               <label for="scheduleFaculty">
@@ -407,9 +411,9 @@
                 <div class="form-group">
                   <label for="setType_lecture"><i class="fas fa-cogs"></i> Set Type <span class="required">*</span></label>
                   <select id="setType_lecture" required>
-                    <option value="set_0">SET 0 / Always Face-to-Face</option>
-                    <option value="set_1">SET 1 / Hybrid Rotation A</option>
-                    <option value="set_2">SET 2 / Hybrid Rotation B</option>
+                    <option value="set_0">SET 0 / Always F2F</option>
+                    <option value="set_1">SET 1 / F2F / Online Rotation</option>
+                    <option value="set_2">SET 2 / Online / F2F Rotation</option>
                   </select>
                   <p class="field-hint" id="setTypeHint_lecture"></p>
                 </div>
@@ -494,9 +498,9 @@
                 <div class="form-group">
                   <label for="setType_laboratory"><i class="fas fa-cogs"></i> Set Type <span class="required">*</span></label>
                   <select id="setType_laboratory" required>
-                    <option value="set_0">SET 0 / Always Face-to-Face</option>
-                    <option value="set_1">SET 1 / Hybrid Rotation A</option>
-                    <option value="set_2">SET 2 / Hybrid Rotation B</option>
+                    <option value="set_0">SET 0 / Always F2F</option>
+                    <option value="set_1">SET 1 / F2F / Online Rotation</option>
+                    <option value="set_2">SET 2 / Online / F2F Rotation</option>
                   </select>
                   <p class="field-hint" id="setTypeHint_laboratory"></p>
                 </div>
@@ -706,7 +710,13 @@
       </div>
 
       <div class="card">
-        <div id="ttHeading" class="timetable-heading"></div>
+        <div class="timetable-heading-row">
+          <div id="ttHeading" class="timetable-heading"></div>
+          <div class="tt-legend no-print" aria-label="Modality legend">
+            <span class="tt-legend-item"><span class="tt-legend-dot tt-legend-f2f"></span>F2F = Face-to-Face</span>
+            <span class="tt-legend-item"><span class="tt-legend-dot tt-legend-online"></span>ONLINE = Online</span>
+          </div>
+        </div>
         <div class="timetable-wrap">
           <div id="ttGrid" class="timetable-grid"></div>
         </div>

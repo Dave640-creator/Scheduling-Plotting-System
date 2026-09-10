@@ -2378,13 +2378,83 @@ tbody tr:last-child td {
   box-shadow: var(--shadow-sm);
 }
 
+.timetable-heading-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-lg);
+  padding-bottom: var(--spacing-md);
+  border-bottom: 2px solid var(--border);
+}
+
 .timetable-heading {
   font-size: 16px;
   font-weight: 700;
   color: var(--primary);
-  margin-bottom: var(--spacing-lg);
-  padding-bottom: var(--spacing-md);
-  border-bottom: 2px solid var(--border);
+}
+
+.tt-legend {
+  display: flex;
+  gap: var(--spacing-md);
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.tt-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.tt-legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.tt-legend-dot.tt-legend-f2f {
+  background: var(--primary);
+}
+
+.tt-legend-dot.tt-legend-online {
+  background: #2563eb;
+}
+
+.tt-modality {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.tt-modality-f2f {
+  background: var(--primary);
+  color: #fff;
+}
+
+.tt-modality-online {
+  background: #2563eb;
+  color: #fff;
+}
+
+.tt-set-tag {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  cursor: help;
 }
 
 .timetable-wrap {
@@ -2436,24 +2506,52 @@ tbody tr:last-child td {
   z-index: 1;
 }
 
-.tt-block {
+/*
+ * Each day column is one grid item spanning the full set of time rows;
+ * the actual schedule blocks inside it are positioned absolutely (see
+ * renderTtBlock) using plain top/height/left/width math in exact
+ * multiples of TT_ROW_HEIGHT. This is what lets a SET1/SET2 pair split
+ * horizontally within a single calculated time slot without touching the
+ * row height -- Mon-Sun stay aligned because the row track sizes never
+ * change, only what's drawn inside each day's column.
+ */
+.tt-day-col {
   position: relative;
   z-index: 2;
-  margin: 1px;
+}
+
+.tt-block {
+  position: absolute;
+  box-sizing: border-box;
   border-radius: var(--radius-sm);
-  padding: 4px 6px;
-  font-size: 11px;
-  line-height: 1.35;
+  border-left: 3px solid var(--primary-light);
+  padding: 1px 5px;
   overflow: hidden;
   background: rgba(122, 20, 20, 0.08);
+  transition: box-shadow 0.15s ease;
+}
+
+.tt-block:hover {
+  box-shadow: 0 0 0 1px var(--primary);
+  z-index: 3;
 }
 
 .tt-block.lab {
   background: #fffbeb;
 }
 
+.tt-block[data-set="set_1"] {
+  border-left-color: var(--warning);
+}
+
+.tt-block[data-set="set_2"] {
+  border-left-color: var(--info);
+}
+
 .tt-block .tt-block-title {
+  font-size: 9.5px;
   font-weight: 700;
+  line-height: 10.5px;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -2461,6 +2559,43 @@ tbody tr:last-child td {
 }
 
 .tt-block .tt-block-sub {
+  font-size: 8.5px;
+  line-height: 10.5px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The "SET 0/1/2" line -- kept as its own line (rather than folded into
+   the modality text) so the rotation a card belongs to is obvious at a
+   glance even when the card is small. Color-coded to match the border
+   accent above. */
+.tt-block .tt-block-set {
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 10.5px;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tt-block .tt-block-set.tt-set-set_0 {
+  color: var(--text-light);
+}
+
+.tt-block .tt-block-set.tt-set-set_1 {
+  color: var(--warning);
+}
+
+.tt-block .tt-block-set.tt-set-set_2 {
+  color: var(--info);
+}
+
+.tt-block .tt-block-modality-line {
+  font-size: 8px;
+  line-height: 10.5px;
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
