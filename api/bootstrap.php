@@ -91,5 +91,11 @@ function friendly_db_error(Throwable $e): string {
         return 'This entry already exists. Please check for duplicates and try again.';
     }
     error_log('[ICS Plotting System] ' . get_class($e) . ': ' . $e->getMessage());
+    // TEMP DEBUG: while APP_DEBUG is true (see config.php), show the real
+    // exception in the toast itself so we don't have to dig through the
+    // XAMPP error log. Set APP_DEBUG back to false before real use.
+    if (defined('APP_DEBUG') && APP_DEBUG) {
+        return 'An unexpected server error occurred. [' . get_class($e) . '] ' . $e->getMessage();
+    }
     return 'An unexpected server error occurred. Please try again or contact the administrator.';
 }

@@ -14,6 +14,12 @@ const DB_NAME = 'ics_plotting_system';
 const DB_USER = 'root';
 const DB_PASS = '';
 
+// TEMP DEBUG: shows the real exception text in the error toast instead of
+// the generic message, so we can see exactly what's failing. Set this back
+// to false once the bug is found -- never leave it true in real use, since
+// it can expose table/column names.
+const APP_DEBUG = true;
+
 function db(): PDO {
     static $pdo = null;
     if ($pdo === null) {
