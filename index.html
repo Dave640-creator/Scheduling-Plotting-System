@@ -346,7 +346,7 @@
               </select>
             </div>
 
-            <div class="form-group">
+            <div class="form-group" style="display:none;">
               <label for="scheduleTarget">
                 <i class="fas fa-layer-group"></i> Block
                 <span class="required">*</span>
@@ -354,10 +354,9 @@
               <select id="scheduleTarget" required disabled>
                 <option value="">Select a year level first</option>
               </select>
-              <p class="field-hint">Pick a regular Block, or SPARE if this course needs its own separate SPARE schedule.</p>
             </div>
 
-            <div class="form-group">
+            <div class="form-group" style="display:none;">
               <label for="scheduleCourseSearch">
                 <i class="fas fa-book"></i> Course
                 <span class="required">*</span>
@@ -377,8 +376,13 @@
                 <select id="scheduleCourse" class="combobox-source" required tabindex="-1" aria-hidden="true"></select>
                 <div class="combobox-panel hidden" id="scheduleCourseList" role="listbox"></div>
               </div>
-              <p class="field-hint">Only courses assigned to the selected Block (or configured for a separate SPARE schedule) are shown.</p>
             </div>
+          </div>
+
+          <div class="form-section" id="offeringOverviewSection">
+            <div class="form-section-title"><i class="fas fa-table-list"></i> Course Offering</div>
+            <p class="field-hint full-width">Pick a Year Level above to see every Block's courses at once, like the printed Course Offering sheet. Click any row to plot or edit that course's schedule below.</p>
+            <div id="offeringOverview" class="full-width"></div>
           </div>
 
           <div class="form-section" id="facultyAssignmentSection">

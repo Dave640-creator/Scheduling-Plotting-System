@@ -214,8 +214,8 @@ VALUES
 ('CIC 111', 'Introduction to Computing', 1, 'first_semester', 2, 1, 'major'),
 ('CIC 112', 'Computer Programming 1 (Fundamental)', 1, 'first_semester', 2, 1, 'major'),
 ('PATH-FIT 1', 'Movement Competency Training', 1, 'first_semester', 2, 0, 'pathfit'),
-('NSTP 1', 'National Service Training Program 1', 1, 'first_semester', 0, 0, 'nstp'),
-('LuxMundi 1', 'Spirituality and Values Formation', 1, 'first_semester', 0, 0, 'luxmundi');
+('NSTP 1', 'National Service Training Program 1', 1, 'first_semester', 3, 0, 'nstp'),
+('LuxMundi 1', 'Spirituality and Values Formation', 1, 'first_semester', 2, 0, 'luxmundi');
 
 
 INSERT INTO courses(course_code, course_title, year_level, semester_type, lec_units, lab_units, category)
@@ -227,8 +227,8 @@ VALUES
 ('CIC 122', 'Data Structures and Algorithms', 1, 'second_semester', 2, 1, 'major'),
 ('MSC 121', 'Discrete Structures 1', 1, 'second_semester', 3, 0, 'major'),
 ('PATH-FIT 2', 'Fitness Training', 1, 'second_semester', 2, 0, 'pathfit'),
-('NSTP 2', 'National Service Training Program 2', 1, 'second_semester', 0, 0, 'nstp'),
-('LuxMundi 2', 'Responsible Citizenship and Good Governance', 1, 'second_semester', 0, 0, 'luxmundi');
+('NSTP 2', 'National Service Training Program 2', 1, 'second_semester', 3, 0, 'nstp'),
+('LuxMundi 2', 'Responsible Citizenship and Good Governance', 1, 'second_semester', 2, 0, 'luxmundi');
 
 
 INSERT INTO courses(course_code, course_title, year_level, semester_type, lec_units, lab_units, category)
@@ -244,13 +244,13 @@ INSERT INTO courses(course_code, course_title, year_level, semester_type, lec_un
 VALUES
 ('GE Ethics', 'Ethics', 2, 'first_semester', 3, 0, 'ge'),
 ('PSC 211', 'Automata Theory and Formal Languages', 2, 'first_semester', 3, 0, 'major'),
-('MSC 212', 'Advanced Statistics and Probability, Numerical Methods', 2, 'first_semester', 3, 0, 'major'),
+('MSC 212', 'Advanced Statistics & Probability, Numerical Methods', 2, 'first_semester', 3, 0, 'major'),
 ('PSC 212', 'Programming Languages', 2, 'first_semester', 2, 1, 'major'),
 ('PSC 213', 'Object-Oriented Programming', 2, 'first_semester', 2, 1, 'major'),
 ('CIC 211', 'Information Management', 2, 'first_semester', 2, 1, 'major'),
 ('ESC 211', 'CS Elective 1 - PC Troubleshooting and Networking', 2, 'first_semester', 2, 1, 'elective'),
 ('PATH-FIT 3', 'Dance', 2, 'first_semester', 2, 0, 'pathfit'),
-('LuxMundi 3', 'Life Skills in the Post Modern Era', 2, 'first_semester', 0, 0, 'luxmundi');
+('LuxMundi 3', 'Life Skills in the Post Modern Era', 2, 'first_semester', 2, 0, 'luxmundi');
 
 
 INSERT INTO courses(course_code, course_title, year_level, semester_type, lec_units, lab_units, category)
@@ -263,7 +263,7 @@ VALUES
 ('PSC 222', 'Architecture and Organization', 2, 'second_semester', 2, 1, 'major'),
 ('ESC 221', 'CS Elective 2 - Mobile Application Development', 2, 'second_semester', 2, 1, 'elective'),
 ('PATH-FIT 4', 'Individual & Team Sports', 2, 'second_semester', 2, 0, 'pathfit'),
-('LuxMundi 4', 'Professional and Personality Development', 2, 'second_semester', 0, 0, 'luxmundi');
+('LuxMundi 4', 'Professional and Personality Development', 2, 'second_semester', 2, 0, 'luxmundi');
 
 
 INSERT INTO courses(course_code, course_title, year_level, semester_type, lec_units, lab_units, category)

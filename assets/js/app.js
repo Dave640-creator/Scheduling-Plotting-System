@@ -687,10 +687,134 @@ function renderTargetOptions() {
   select.disabled = false;
 }
 
+/**
+ * The Course Offering overview: pick a Year Level (+ School Year) and see
+ * every Block for that year, plus SPARE, in one continuous report -- like
+ * the printed Course Offering sheet -- instead of picking one Block at a
+ * time. Each row is one component (Lecture/Laboratory) of one course
+ * assigned to that block; clicking a row loads it into the Subject
+ * Offering form below (unlocked for editing) via selectOfferingRow().
+ */
+function offeringRowsForCourse(course, blockRow, spareRow, schoolYear) {
+  const target = blockRow ? { type: 'block', id: blockRow.id } : { type: 'spare', id: spareRow.id };
+  const rows = [];
+  COMPONENT_TYPES.forEach((component) => {
+    if (!courseRequiresComponent(course, component)) return;
+    const existing = findExistingComponentSchedule(course.id, target, schoolYear, component);
+    rows.push({ course, target, component, existing });
+  });
+  return rows;
+}
+
+function renderOfferingRow(codeLabel, row) {
+  const { course, target, component, existing } = row;
+  const targetValue = `${target.type}:${target.id}`;
+  const isEditingThis = editing.schedules && existing && Number(existing.id) === Number(editing.schedules);
+  if (!existing) {
+    return `<tr class="offering-row offering-row-unscheduled" data-target="${targetValue}" data-course-id="${course.id}" data-component="${component}">
+      <td class="offering-code-cell">${escapeHtml(codeLabel)}</td>
+      <td>\u2013</td>
+      <td>${escapeHtml(course.course_code)}</td>
+      <td>${escapeHtml(course.course_title)}</td>
+      <td>${component === 'laboratory' ? 'LAB' : 'LEC'}</td>
+      <td colspan="3">Not yet scheduled \u2014 click to plot</td>
+      <td><i class="fas fa-plus"></i></td>
+    </tr>`;
+  }
+  return `<tr class="offering-row${isEditingThis ? ' is-editing' : ''}" data-target="${targetValue}" data-course-id="${course.id}" data-component="${component}">
+    <td class="offering-code-cell">${escapeHtml(codeLabel)}</td>
+    <td>${escapeHtml((SET_LABELS_SHORT[existing.set_type] || existing.set_type).replace('SET ', ''))}</td>
+    <td>${escapeHtml(course.course_code)}</td>
+    <td>${escapeHtml(course.course_title)}</td>
+    <td>${component === 'laboratory' ? 'LAB' : 'LEC'}</td>
+    <td>${escapeHtml(formatDayPattern(existing.day_of_week))}</td>
+    <td>${existing.start_time.slice(0, 5)}-${existing.end_time.slice(0, 5)}</td>
+    <td>${escapeHtml(existing.room_name || 'No room')}</td>
+    <td><i class="fas fa-pen"></i></td>
+  </tr>`;
+}
+
+function renderOfferingOverview() {
+  const container = $('offeringOverview');
+  const yearLevel = $('scheduleYearLevel').value;
+  const schoolYear = $('scheduleSchoolYear').value;
+
+  if (!yearLevel || !schoolYear) {
+    container.innerHTML = `<div class="offering-empty"><i class="fas fa-arrow-up"></i> Select a School Year and Year Level above to see this year level's full course offering.</div>`;
+    return;
+  }
+
+  const blocksForYear = state.blocks.filter((b) => Number(b.year_level) === Number(yearLevel)).sort((a, b) => a.block_no - b.block_no);
+  const spare = spareGroupForYearLevel(yearLevel);
+  const programCode = blocksForYear[0]?.program_code || spare?.program_code || 'BSCS';
+  const yearLabel = YEAR_LEVEL_LABELS[yearLevel] || `Year ${yearLevel}`;
+
+  if (!blocksForYear.length && !spare) {
+    container.innerHTML = `<div class="offering-empty"><i class="fas fa-layer-group"></i> No blocks exist yet for ${escapeHtml(yearLabel)}. Create some in Blocks first.</div>`;
+    return;
+  }
+
+  let codeCounter = 1;
+  const codePrefix = { 1: 'A', 2: 'B', 3: 'C', 4: 'D' }[yearLevel] || 'X';
+  const cols = '<tr><th>Code</th><th>Set</th><th>Course Code</th><th>Course Title</th><th>Type</th><th>Day</th><th>Time</th><th>Room</th><th></th></tr>';
+
+  let html = '';
+
+  blocksForYear.forEach((block) => {
+    const courseIds = courseIdsForBlock(block.id);
+    const courses = courseIds.map((id) => state.courses.find((c) => Number(c.id) === id)).filter(Boolean)
+      .sort((a, b) => Number(a.id) - Number(b.id));
+    const rowsHtml = courses.flatMap((course) => offeringRowsForCourse(course, block, null, schoolYear))
+      .map((row) => renderOfferingRow(`${codePrefix}${codeCounter++}`, row)).join('');
+    html += `
+      <div class="offering-block-section">
+        <div class="offering-block-title">${escapeHtml(programCode)}<br>${escapeHtml(yearLabel)} Students (${escapeHtml(block.block_name.toUpperCase())})</div>
+        <table class="offering-table"><thead>${cols}</thead><tbody>${rowsHtml || `<tr><td colspan="9" class="offering-empty">No courses assigned to this block yet.</td></tr>`}</tbody></table>
+      </div>`;
+  });
+
+  if (spare) {
+    const separateCourseIds = (spare.allocations || []).filter((a) => a.allocation_type === 'separate_schedule').map((a) => Number(a.course_id));
+    const joinBlockAllocs = (spare.allocations || []).filter((a) => a.allocation_type === 'join_block');
+    const courses = separateCourseIds.map((id) => state.courses.find((c) => Number(c.id) === id)).filter(Boolean)
+      .sort((a, b) => Number(a.id) - Number(b.id));
+    const rowsHtml = courses.flatMap((course) => offeringRowsForCourse(course, null, spare, schoolYear))
+      .map((row) => renderOfferingRow(`${codePrefix}${codeCounter++}`, row)).join('');
+    const noteRows = joinBlockAllocs.map((a) => `<tr class="offering-note-row"><td colspan="9">${escapeHtml(a.course_code)} - SPARE joins ${escapeHtml(a.target_block_name || 'a block')} (no separate schedule)</td></tr>`).join('');
+    html += `
+      <div class="offering-block-section">
+        <div class="offering-block-title">${escapeHtml(programCode)}<br>${escapeHtml(yearLabel)} Students (SPARE)</div>
+        <table class="offering-table"><thead>${cols}</thead><tbody>${rowsHtml || (joinBlockAllocs.length ? '' : `<tr><td colspan="9" class="offering-empty">No SPARE allocations configured yet for this year level.</td></tr>`)}${noteRows}</tbody></table>
+      </div>`;
+  }
+
+  container.innerHTML = html;
+
+  container.querySelectorAll('.offering-row').forEach((tr) => {
+    tr.addEventListener('click', () => selectOfferingRow(tr.dataset.target, Number(tr.dataset.courseId), tr.dataset.component));
+  });
+}
+
+/** Loads one course-offering row (Block/SPARE + Course + Component) from the overview table into the Subject Offering form below, unlocked for editing, and scrolls to it. */
+function selectOfferingRow(targetValue, courseId, component) {
+  $('scheduleTarget').value = targetValue;
+  scheduleCourseCombobox.updateAvailability();
+  $('scheduleCourse').value = courseId;
+  scheduleCourseCombobox.syncDisplay();
+  COMPONENT_TYPES.forEach((c) => { componentUnlocked[c] = false; resetComponentFields(c); updateSetTypeOptions(c); });
+  updateComponentBlocks();
+  updateFacultyOptions();
+  unlockComponentBlock(component);
+  renderOfferingOverview();
+  $('componentsSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+window.selectOfferingRow = selectOfferingRow;
+
 /** Year Level changed on the Plot Schedule form: rebuild the Block/SPARE Target list, then reset the whole downstream chain (Course, Faculty, component blocks), per the "reset dependent selections" requirement. */
 function onYearLevelChange() {
   renderTargetOptions();
   onTargetChange();
+  renderOfferingOverview();
 }
 
 /** Block/SPARE Target changed: Course is gated on this, so reset it, then reset the rest of the downstream chain same as a course change would. */
@@ -713,6 +837,7 @@ async function loadAll() {
   renderTimetableSelectors();
   renderTimetable();
   renderSpareYearLevelOptions();
+  renderOfferingOverview();
 }
 
 function iconForStatKey(key) {
@@ -2374,6 +2499,7 @@ function cancelEdit(entity) {
     renderTargetOptions();
     updateComponentBlocks();
     updateFacultyOptions();
+    renderOfferingOverview();
   }
   if (entity === 'assignments') {
     assignCourseCombobox.syncDisplay();
@@ -2539,6 +2665,7 @@ function editSchedule(id) {
   unlockComponentBlock(s.component);
   activateView('plotting');
   startEdit('schedules', id);
+  renderOfferingOverview();
 }
 window.editSchedule = editSchedule;
 
@@ -3133,6 +3260,7 @@ function onOfferingContextChange() {
   updateComponentBlocks();
   updateFacultyOptions();
   COMPONENT_TYPES.forEach((c) => checkLiveConflict(c));
+  renderOfferingOverview();
 }
 
 $('scheduleYearLevel').addEventListener('change', onYearLevelChange);

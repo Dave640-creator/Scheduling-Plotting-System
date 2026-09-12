@@ -2745,3 +2745,26 @@ tbody tr:last-child td {
 }
 .spare-allocation-row:last-child { border-bottom: none; }
 .spare-allocation-course { font-weight: 600; }
+
+/* Course Offering overview (Plot Schedule -> pick Year Level -> see every Block at once) */
+.offering-block-section { margin-bottom: 22px; }
+.offering-block-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  text-align: center;
+  padding: 8px 10px;
+  background: var(--accent, #7a1f2b);
+  color: #fff;
+  border-radius: 8px 8px 0 0;
+  letter-spacing: 0.02em;
+}
+.offering-table { width: 100%; margin-top: 0; }
+.offering-table th { font-size: 0.78rem; white-space: nowrap; }
+.offering-table td { font-size: 0.85rem; vertical-align: top; }
+.offering-row { cursor: pointer; transition: background 0.15s; }
+.offering-row:hover { background: var(--bg-hover, rgba(122,31,43,0.08)); }
+.offering-row.is-editing { outline: 2px solid var(--accent, #7a1f2b); outline-offset: -2px; }
+.offering-row-unscheduled td { color: var(--text-secondary, #888); font-style: italic; }
+.offering-code-cell { font-weight: 600; white-space: nowrap; }
+.offering-note-row td { font-style: italic; color: var(--text-secondary, #888); font-size: 0.8rem; }
+.offering-empty { padding: 14px; text-align: center; color: var(--text-secondary, #888); }
