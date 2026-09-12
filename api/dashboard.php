@@ -5,7 +5,7 @@ try {
     $pdo = db();
     $data = [
         'courses' => (int)$pdo->query('SELECT COUNT(*) FROM courses')->fetchColumn(),
-        'sections' => (int)$pdo->query('SELECT COUNT(*) FROM sections')->fetchColumn(),
+        'blocks' => (int)$pdo->query('SELECT COUNT(*) FROM blocks')->fetchColumn(),
         'faculty' => (int)$pdo->query('SELECT COUNT(*) FROM faculty')->fetchColumn(),
         'rooms' => (int)$pdo->query('SELECT COUNT(*) FROM rooms')->fetchColumn(),
         'schedules' => (int)$pdo->query('SELECT COUNT(*) FROM schedules')->fetchColumn(),

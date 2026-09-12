@@ -1,10 +1,10 @@
 <?php
 /**
- * Bulk CSV import for Courses and Sections.
+ * Bulk CSV import for Courses and Blocks.
  *
- * GET  ?template=courses|sections   -> downloads a starter CSV with the
+ * GET  ?template=courses|blocks   -> downloads a starter CSV with the
  *      expected header row and one example row.
- * POST { type: 'courses'|'sections', csv: '<raw csv text>' }
+ * POST { type: 'courses'|'blocks', csv: '<raw csv text>' }
  *      -> parses the CSV server-side (so quoting/commas-in-fields are
  *      handled correctly instead of relying on a naive JS split), validates
  *      each row with the exact same rules as the single-record endpoints,
@@ -12,13 +12,17 @@
  *      -- it's skipped and reported back with its row number and reason so
  *      the user can fix just that row and re-import, Google-Sheets-import
  *      style, rather than losing an otherwise-good batch over one typo.
+ *
+ * Blocks are still auto-named "Block N" here, exactly like the single
+ * "Add Block" endpoint (api/blocks.php) -- the CSV only supplies
+ * year_level + number_of_blocks per row, never a block name/number.
  */
 require_once __DIR__ . '/bootstrap.php';
 require_login();
 
 const IMPORT_REQUIRED_COLUMNS = [
     'courses' => ['course_code', 'course_title', 'year_level', 'semester_type'],
-    'sections' => ['year_level', 'section_no'],
+    'blocks' => ['year_level', 'number_of_blocks'],
 ];
 
 const IMPORT_MAX_ROWS = 1000;
@@ -45,13 +49,13 @@ try {
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $type = $_GET['template'] ?? '';
         if (!isset(IMPORT_REQUIRED_COLUMNS[$type])) {
-            json_response(false, 'Unknown import type. Use "courses" or "sections".', null, 422);
+            json_response(false, 'Unknown import type. Use "courses" or "blocks".', null, 422);
         }
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="' . $type . '_import_template.csv"');
         echo $type === 'courses'
             ? "course_code,course_title,year_level,semester_type,lec_units,lab_units,category\nCS101,Introduction to Computing,1,first_semester,3,0,major\n"
-            : "program_code,year_level,section_no,student_count\nBSCS,1,A,30\n";
+            : "program_code,year_level,number_of_blocks\nBSCS,1,3\n";
         exit;
     }
 
@@ -63,7 +67,7 @@ try {
     $type = $d['type'] ?? '';
     $csvText = (string)($d['csv'] ?? '');
     if (!isset(IMPORT_REQUIRED_COLUMNS[$type])) {
-        json_response(false, 'Unknown import type. Use "courses" or "sections".', null, 422);
+        json_response(false, 'Unknown import type. Use "courses" or "blocks".', null, 422);
     }
     if (trim($csvText) === '') {
         json_response(false, 'No CSV data received.', null, 422);
@@ -149,8 +153,9 @@ try {
                     : "Row $rowNum: could not be saved ($code).";
             }
         }
-    } else { // sections
-        $stmt = $pdo->prepare('INSERT INTO sections(program_code,year_level,section_no,student_count) VALUES(?,?,?,?)');
+    } else { // blocks
+        $insertStmt = $pdo->prepare('INSERT INTO blocks(program_code,year_level,block_name,block_no) VALUES(?,?,?,?)');
+        $maxStmt = $pdo->prepare('SELECT COALESCE(MAX(block_no), 0) FROM blocks WHERE program_code=? AND year_level=?');
 
         foreach ($rows as $row) {
             $rowNum++;
@@ -158,30 +163,31 @@ try {
 
             $program = $cell($row, 'program_code') ?: 'BSCS';
             $year = $cell($row, 'year_level');
-            $secNo = $cell($row, 'section_no');
-            $countRaw = $cell($row, 'student_count');
-            $count = ($countRaw !== '' && is_numeric($countRaw)) ? (int)$countRaw : 30;
+            $countRaw = $cell($row, 'number_of_blocks');
 
-            if ($year === '' || $secNo === '') {
-                $errors[] = "Row $rowNum: missing year level or section number.";
+            if ($year === '' || $countRaw === '') {
+                $errors[] = "Row $rowNum: missing year level or number of blocks.";
                 continue;
             }
             if (!ctype_digit($year) || (int)$year < 1 || (int)$year > 4) {
                 $errors[] = "Row $rowNum: year level must be 1-4.";
                 continue;
             }
-            if ($count < 1 || $count > 30) {
-                $errors[] = "Row $rowNum: student count must be between 1 and 30.";
+            if (!ctype_digit($countRaw) || (int)$countRaw < 1 || (int)$countRaw > 20) {
+                $errors[] = "Row $rowNum: number_of_blocks must be a whole number between 1 and 20.";
                 continue;
             }
 
             try {
-                $stmt->execute([$program, (int)$year, $secNo, $count]);
-                $inserted++;
+                $maxStmt->execute([$program, (int)$year]);
+                $startNo = (int)$maxStmt->fetchColumn() + 1;
+                for ($i = 0; $i < (int)$countRaw; $i++) {
+                    $no = $startNo + $i;
+                    $insertStmt->execute([$program, (int)$year, 'Block ' . $no, $no]);
+                    $inserted++;
+                }
             } catch (PDOException $e) {
-                $errors[] = $e->getCode() === '23000'
-                    ? "Row $rowNum: section \"$program $year-$secNo\" already exists -- skipped."
-                    : "Row $rowNum: could not be saved ($program $secNo).";
+                $errors[] = "Row $rowNum: could not create blocks for $program Year $year.";
             }
         }
     }

@@ -1,6 +1,17 @@
 <?php
 require_once __DIR__ . '/bootstrap.php';
 require_login();
+
+/** Normalizes the optional course/class capacity field: '' / null -> NULL (no limit tracked), otherwise a positive int. */
+function normalize_max_students(mixed $raw): ?int {
+    if ($raw === null || $raw === '') return null;
+    $val = filter_var($raw, FILTER_VALIDATE_INT);
+    if ($val === false || $val <= 0) {
+        json_response(false, 'Course capacity, if provided, must be a positive whole number.', null, 422);
+    }
+    return $val;
+}
+
 try {
     $pdo = db();
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
@@ -19,8 +30,9 @@ try {
         if ($lecUnits <= 0 && $labUnits <= 0) {
             json_response(false, 'A course must have at least a lecture or a laboratory unit greater than 0.', null, 422);
         }
-        $stmt = $pdo->prepare('INSERT INTO courses(course_code,course_title,year_level,semester_type,lec_units,lab_units,category) VALUES(?,?,?,?,?,?,?)');
-        $stmt->execute([$d['course_code'],$d['course_title'],$yearLevel,$d['semester_type'],$lecUnits,$labUnits,$d['category']??'major']);
+        $maxStudents = normalize_max_students($d['max_students'] ?? null);
+        $stmt = $pdo->prepare('INSERT INTO courses(course_code,course_title,year_level,semester_type,lec_units,lab_units,category,max_students) VALUES(?,?,?,?,?,?,?,?)');
+        $stmt->execute([$d['course_code'],$d['course_title'],$yearLevel,$d['semester_type'],$lecUnits,$labUnits,$d['category']??'major',$maxStudents]);
         json_response(true, 'Course added successfully', ['id'=>$pdo->lastInsertId()], 201);
     }
     if ($_SERVER['REQUEST_METHOD'] === 'PUT') {
@@ -38,6 +50,7 @@ try {
         if ($lecUnits <= 0 && $labUnits <= 0) {
             json_response(false, 'A course must have at least a lecture or a laboratory unit greater than 0.', null, 422);
         }
+        $maxStudents = normalize_max_students($d['max_students'] ?? null);
 
         $currentStmt = $pdo->prepare('SELECT * FROM courses WHERE id=?');
         $currentStmt->execute([$id]);
@@ -48,14 +61,15 @@ try {
 
         // Lecture/lab units, year level, semester, and category are exactly
         // the fields an existing schedule's validity depends on (required
-        // weekly hours, which component is allowed, which section year
+        // weekly hours, which component is allowed, which block's year
         // level it can be plotted for, and -- for category -- the SET1/SET2
         // alternating-week conflict exemption rule in schedules.php's
         // is_minor_or_lecture()). If any of these change while schedules
         // already reference this course, those schedules could silently
         // become inconsistent with the (now-edited) course record. Block
         // the edit instead -- Option A from the bug report -- and ask for
-        // the schedules to be dealt with first.
+        // the schedules to be dealt with first. max_students is informational
+        // only and is NOT structural, so it can always be edited freely.
         $structuralChanged =
             abs((float)$current['lec_units'] - $lecUnits) > 0.0001 ||
             abs((float)$current['lab_units'] - $labUnits) > 0.0001 ||
@@ -71,8 +85,8 @@ try {
             }
         }
 
-        $stmt = $pdo->prepare('UPDATE courses SET course_code=?, course_title=?, year_level=?, semester_type=?, lec_units=?, lab_units=?, category=? WHERE id=?');
-        $stmt->execute([$d['course_code'],$d['course_title'],$yearLevel,$d['semester_type'],$lecUnits,$labUnits,$newCategory,$id]);
+        $stmt = $pdo->prepare('UPDATE courses SET course_code=?, course_title=?, year_level=?, semester_type=?, lec_units=?, lab_units=?, category=?, max_students=? WHERE id=?');
+        $stmt->execute([$d['course_code'],$d['course_title'],$yearLevel,$d['semester_type'],$lecUnits,$labUnits,$newCategory,$maxStudents,$id]);
         json_response(true, 'Course updated successfully');
     }
     if ($_SERVER['REQUEST_METHOD'] === 'DELETE') {

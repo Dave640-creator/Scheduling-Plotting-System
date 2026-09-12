@@ -73,8 +73,17 @@ function friendly_db_error(Throwable $e): string {
         if (str_contains($msg, 'unique_course')) {
             return 'A course with this code already exists for that year level and semester.';
         }
-        if (str_contains($msg, 'unique_section')) {
-            return 'A section with this program, year level, and section number already exists.';
+        if (str_contains($msg, 'unique_block_course')) {
+            return 'This course is already assigned to this block.';
+        }
+        if (str_contains($msg, 'unique_block')) {
+            return 'A block with this program, year level, and name already exists.';
+        }
+        if (str_contains($msg, 'unique_spare_course')) {
+            return 'This course already has a SPARE allocation for this group.';
+        }
+        if (str_contains($msg, 'unique_spare')) {
+            return 'A SPARE group already exists for this program and year level.';
         }
         if (str_contains($msg, 'unique_faculty_course')) {
             return 'This faculty member is already assigned to this course.';

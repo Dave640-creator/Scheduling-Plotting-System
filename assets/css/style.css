@@ -2720,3 +2720,28 @@ tbody tr:last-child td {
 .print-letterhead {
   display: none;
 }
+/* Block/SPARE additions */
+.optional { color: var(--text-secondary, #888); font-weight: 400; font-size: 0.85em; }
+.checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-top: 8px;
+}
+.checklist-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.checklist-item input[type="checkbox"] { width: 16px; height: 16px; }
+.spare-allocation-row {
+  display: grid;
+  grid-template-columns: 2fr 1.2fr 1.2fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border, #333);
+}
+.spare-allocation-row:last-child { border-bottom: none; }
+.spare-allocation-course { font-weight: 600; }

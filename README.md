@@ -16,24 +16,26 @@ Theme:
 Institute Head only.
 
 ## Main Features
-- Course management
+- Course management (with an optional, informational-only course capacity)
 - Faculty management
-- Section management using number-based sections like 172, 173, 174
-- Room management with lecture/laboratory type
+- Block management: Year Level + Number of Blocks -> auto-generates "Block 1, Block 2, ..." (blocks carry no capacity field)
+- Assign Courses: pick which Courses belong to which Block (many-to-many)
+- SPARE Allocation: a special group, separate from regular Blocks, handled per course (join an existing Block's class, or get its own separate SPARE schedule)
+- Room management with lecture/laboratory type (no capacity field)
 - Faculty-course assignment
-- Manual schedule plotting
-- Online / Face-to-Face mode
+- Manual schedule plotting, against either a Block or SPARE
+- Face-to-Face / Hybrid rotation mode
 - SET 0, SET 1, SET 2 support
 - Printable schedule list
 
 ## Validations Applied
 - Instructor conflict checking
-- Section/block conflict checking
+- Block/SPARE conflict checking
 - Room conflict checking (SET 0 always; SET 1/SET 2 checked against each other too, except the two may share the same room/time since their F2F weeks alternate)
 - SET 0, SET 1, and SET 2 all require a room -- none of them is permanently online; SET 1/SET 2 are hybrid with an alternating F2F week
 - Laboratory component must use laboratory room
 - Lecture component must use lecture room
-- Room capacity must be enough for section student count
+- A course must actually be assigned to the target Block (or configured for a separate SPARE schedule) before it can be plotted
 - Faculty can only teach assigned/allowed courses
 - Faculty has maximum of 4 preparations only
 - Weekly hours follow: 1 unit = 1 hour per week, for BOTH Lecture and Laboratory units (this app does NOT use the common "1 laboratory unit = 3 hours" rule)
@@ -74,15 +76,17 @@ A login screen now gates the whole app. Default account:
 Log in with these on first run. (If you already had a copy of this project installed before 2026-07-14, run `database/migration_fixes_2026-07-14.sql` once — it corrects a broken password hash from the old seed data and adds the `delivery_mode` column schedules now needs.)
 
 ## API Files
-All API files return JSON responses. `courses.php`, `sections.php`, `faculty.php`, `rooms.php`, and `schedules.php` support GET/POST/PUT/DELETE (PUT edits an existing record by `id`). `faculty_courses.php` supports GET/POST/DELETE only. All of these require an active login session except `auth.php` itself:
+All API files return JSON responses. `courses.php`, `blocks.php`, `faculty.php`, `rooms.php`, and `schedules.php` support GET/POST/PUT/DELETE (PUT edits an existing record by `id`). `faculty_courses.php` supports GET/POST/DELETE only. `block_courses.php` and `spares.php` support GET/POST/DELETE with their own request shapes (see the comment block at the top of each file). All of these require an active login session except `auth.php` itself:
 - `api/auth.php` — GET checks session, POST logs in, DELETE logs out
 - `api/dashboard.php`
 - `api/courses.php`
-- `api/sections.php`
+- `api/blocks.php` — Add Block: Year Level + Number of Blocks -> auto-creates "Block N"
+- `api/block_courses.php` — Assign Courses to a Block (many-to-many)
+- `api/spares.php` — SPARE groups and per-course allocation (join_block / separate_schedule)
 - `api/rooms.php`
 - `api/faculty.php`
 - `api/faculty_courses.php`
-- `api/schedules.php`
+- `api/schedules.php` — plots against either `block_id` or `spare_id` (never both)
 
 ## Important Note
 This version is focused on the Institute of Computer Studies plotting process and is designed to replace manual Excel plotting with structured validation and conflict detection.
@@ -170,6 +174,20 @@ The unit-to-hours rule (1 unit = 1 hour/week for both Lecture and Laboratory, no
 
 Also removed a stale, older duplicate copy of the entire app that had somehow ended up nested inside itself (`ics_plotting_system/ics_plotting_system/`, previously tracked in git) -- it predated several fixes (dashboard overview section, the corrected unit rule) and was not the version actually being served.
 
+## Section -> Block/SPARE Migration (2026-09-12)
+The student-grouping model was replaced end-to-end, not just relabeled:
+
+- **Section is gone.** The `sections` table, `api/sections.php`, and every "Section" field/label in the UI are removed.
+- **Block replaces it as the grouping unit.** Blocks are created via **Add Block**: pick a Year Level and a Number of Blocks, and the system auto-generates "Block 1, Block 2, ..." -- there is no Section Number or manual naming, and continuing to "Add Block" later for the same Year Level picks up numbering where it left off rather than colliding or renumbering.
+- **Blocks have no capacity field**, by design. Room Capacity was also removed from Add Room entirely. The only remaining student-count-style figure in the system is an **optional Course Capacity** (`courses.max_students`) -- informational only, meant to help the coordinator judge when SPARE is needed, and never enforced as a plotting gate.
+- **Assign Courses (new):** a many-to-many mapping between Blocks and Courses. Plot Schedule now flows Year Level -> Block -> Courses (auto-populated from this mapping) -> plot, instead of picking a Course first.
+- **SPARE (new):** a special allocation group, one per Program + Year Level, kept entirely separate from regular Blocks (never "Block N", never auto-generated by Add Block). Each course under that year level is configured independently from the new **SPARE Allocation** screen:
+  - **Join Block** -- SPARE students for that course simply attend an existing Block's class; this is informational only and never gets a schedule of its own.
+  - **Separate Schedule** -- the course needs its own class time/room/instructor for the SPARE group; this is the only case that shows up as a plottable target (`SPARE`) in Plot Schedule's Block dropdown.
+- **Database:** `schedules` now has both `block_id` and `spare_id` (nullable, exactly one set per row, enforced by a CHECK constraint and a generated `target_ref` column used for the uniqueness/duplicate-component check). New tables: `blocks`, `block_courses`, `spares`, `spare_course_allocations`.
+- **CSV Import:** the Sections import was replaced with a Blocks import (`year_level`, `number_of_blocks` columns) using the same auto-naming rule as Add Block.
+- This is a breaking schema change with no data migration path (by design, per the request) -- re-import `database/ics_plotting.sql` on a fresh database rather than trying to upgrade an existing install in place.
+
 ## Known Remaining Gaps (not yet implemented)
 - Editing a course's units/year-level/semester after schedules already exist for it is not retroactively re-validated against the DB rules -- the app only shows a toast telling you how many schedules to go re-check manually in the Schedules tab
 - No bulk CSV import for courses, no "clone previous semester" shortcut
@@ -178,4 +196,5 @@ Also removed a stale, older duplicate copy of the entire app that had somehow en
 - No total-teaching-hours/overload check across a faculty's full schedule (only the "max preparations" count is enforced, and it's now per-term rather than lifetime)
 - No per-day/per-time instructor availability/blackout preferences (the Active/Unavailable toggle is all-or-nothing, not day-specific)
 - Timetable grid doesn't yet handle two SET_1/SET_2-alternating schedules that legitimately overlap the same time slot (they'll visually stack in the same cell rather than showing side-by-side)
-- Out of scope by design: individual student-level scheduling (transferees, irregular/deloaded students). This system plots block schedules per section; matching individual students to slots belongs in a separate enrollment/registration system.
+- Out of scope by design: individual student-level scheduling (transferees, irregular/deloaded students). This system plots block schedules per block; matching individual students to slots belongs in a separate enrollment/registration system.
+- SPARE is scoped one group per Program + Year Level (not per-block or per-course), matching how it was described -- if a school later needs multiple independent SPARE pools per year level, the schema would need to grow further.

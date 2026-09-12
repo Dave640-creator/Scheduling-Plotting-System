@@ -117,9 +117,13 @@
         <i class="fas fa-book"></i>
         <span>Courses</span>
       </button>
-      <button class="nav-item" data-view="sections">
+      <button class="nav-item" data-view="blocks">
         <i class="fas fa-layer-group"></i>
-        <span>Sections</span>
+        <span>Blocks</span>
+      </button>
+      <button class="nav-item" data-view="spares">
+        <i class="fas fa-user-group"></i>
+        <span>SPARE Allocation</span>
       </button>
       <button class="nav-item" data-view="faculty">
         <i class="fas fa-chalkboard-user"></i>
@@ -275,7 +279,7 @@
           </div>
           <div class="validation-item">
             <i class="fas fa-check-circle"></i>
-            <span>Section/block time conflict</span>
+            <span>Block/SPARE time conflict</span>
           </div>
           <div class="validation-item">
             <i class="fas fa-check-circle"></i>
@@ -299,7 +303,7 @@
           </div>
           <div class="validation-item">
             <i class="fas fa-check-circle"></i>
-            <span>Course year level matches section year level</span>
+            <span>Course year level matches block/SPARE year level</span>
           </div>
         </div>
       </div>
@@ -310,7 +314,7 @@
       <div class="section-header">
         <div class="section-header-text">
           <h2><i class="fas fa-calendar-plus"></i> Plot Subject Offering</h2>
-          <p>Plot every required component (Lecture, and Laboratory when applicable) for one Course + Section + School Year in a single save</p>
+          <p>Plot every required component (Lecture, and Laboratory when applicable) for one Course + Block (or SPARE) + School Year in a single save</p>
         </div>
       </div>
 
@@ -343,6 +347,17 @@
             </div>
 
             <div class="form-group">
+              <label for="scheduleTarget">
+                <i class="fas fa-layer-group"></i> Block
+                <span class="required">*</span>
+              </label>
+              <select id="scheduleTarget" required disabled>
+                <option value="">Select a year level first</option>
+              </select>
+              <p class="field-hint">Pick a regular Block, or SPARE if this course needs its own separate SPARE schedule.</p>
+            </div>
+
+            <div class="form-group">
               <label for="scheduleCourseSearch">
                 <i class="fas fa-book"></i> Course
                 <span class="required">*</span>
@@ -357,19 +372,12 @@
                   aria-expanded="false"
                   aria-controls="scheduleCourseList"
                   aria-autocomplete="list"
-                  placeholder="Select a year level first"
+                  placeholder="Select a block first"
                   disabled />
                 <select id="scheduleCourse" class="combobox-source" required tabindex="-1" aria-hidden="true"></select>
                 <div class="combobox-panel hidden" id="scheduleCourseList" role="listbox"></div>
               </div>
-            </div>
-
-            <div class="form-group">
-              <label for="scheduleSection">
-                <i class="fas fa-users"></i> Section
-                <span class="required">*</span>
-              </label>
-              <select id="scheduleSection" required></select>
+              <p class="field-hint">Only courses assigned to the selected Block (or configured for a separate SPARE schedule) are shown.</p>
             </div>
           </div>
 
@@ -391,7 +399,7 @@
 
           <div class="form-section" id="componentsSection">
             <div class="form-section-title"><i class="fas fa-layer-group"></i> Components</div>
-            <p class="field-hint full-width" id="componentsStatus">🔒 Select a course, section, and school year first to see the required components.</p>
+            <p class="field-hint full-width" id="componentsStatus">🔒 Select a course, block, and school year first to see the required components.</p>
 
             <!-- One block per possible component. Both are always present in
                  the DOM; JS shows/hides each based on the selected course's
@@ -626,8 +634,8 @@
             </select>
           </div>
           <div class="form-group">
-            <label for="filterSection"><i class="fas fa-users"></i> Section</label>
-            <select id="filterSection"><option value="">All Sections</option></select>
+            <label for="filterTarget"><i class="fas fa-layer-group"></i> Block</label>
+            <select id="filterTarget"><option value="">All Blocks</option></select>
           </div>
           <div class="form-group">
             <label for="filterFaculty"><i class="fas fa-chalkboard-user"></i> Faculty</label>
@@ -644,7 +652,7 @@
         <div class="table-toolbar">
           <div class="table-search">
             <i class="fas fa-search"></i>
-            <input id="schedulesSearch" placeholder="Search course, faculty, section..." />
+            <input id="schedulesSearch" placeholder="Search course, faculty, block..." />
           </div>
         </div>
         <div class="table-responsive">
@@ -659,7 +667,7 @@
       <div class="section-header no-print">
         <div class="section-header-text">
           <h2><i class="fas fa-table-cells"></i> Timetables</h2>
-          <p>Printable weekly schedule by section or by faculty</p>
+          <p>Printable weekly schedule by block or by faculty</p>
         </div>
         <button class="print-btn" onclick="printTimetable()" title="Print this timetable">
           <i class="fas fa-print"></i> <span>Print</span>
@@ -668,8 +676,8 @@
 
       <div class="card timetable-controls">
         <div class="timetable-tabs">
-          <button class="timetable-tab active" data-tt-mode="section" type="button">
-            <i class="fas fa-layer-group"></i> By Section
+          <button class="timetable-tab active" data-tt-mode="block" type="button">
+            <i class="fas fa-layer-group"></i> By Block
           </button>
           <button class="timetable-tab" data-tt-mode="faculty" type="button">
             <i class="fas fa-chalkboard-user"></i> By Faculty
@@ -689,9 +697,9 @@
               <option value="summer">Summer</option>
             </select>
           </div>
-          <div class="form-group" id="ttSectionGroup">
-            <label for="ttSection"><i class="fas fa-layer-group"></i> Section</label>
-            <select id="ttSection"></select>
+          <div class="form-group" id="ttTargetGroup">
+            <label for="ttTarget"><i class="fas fa-layer-group"></i> Block</label>
+            <select id="ttTarget"></select>
           </div>
           <div class="form-group hidden" id="ttFacultyGroup">
             <label for="ttFaculty"><i class="fas fa-chalkboard-user"></i> Faculty</label>
@@ -752,12 +760,12 @@
       </div>
     </section>
 
-    <!-- Sections View -->
-    <section id="sections" class="view">
+    <!-- Blocks View -->
+    <section id="blocks" class="view">
       <div class="section-header">
         <div class="section-header-text">
-          <h2><i class="fas fa-layer-group"></i> Sections</h2>
-          <p>Create and manage student sections</p>
+          <h2><i class="fas fa-layer-group"></i> Blocks</h2>
+          <p>Create and manage student blocks (Year Level &rarr; Block &rarr; Courses)</p>
         </div>
       </div>
 
@@ -765,19 +773,45 @@
         <div class="table-toolbar">
           <div class="table-search">
             <i class="fas fa-search"></i>
-            <input id="sectionsSearch" placeholder="Search section..." />
+            <input id="blocksSearch" placeholder="Search block..." />
           </div>
-          <button class="btn btn-secondary" type="button" onclick="triggerCsvImport('sections')">
+          <button class="btn btn-secondary" type="button" onclick="triggerCsvImport('blocks')">
             <i class="fas fa-file-csv"></i> Import CSV
           </button>
-          <button class="btn btn-primary" type="button" onclick="openEntityModal('sections')">
-            <i class="fas fa-plus"></i> Add Section
+          <button class="btn btn-primary" type="button" onclick="openAddBlockModal()">
+            <i class="fas fa-plus"></i> Add Block
           </button>
         </div>
         <div class="table-responsive">
-          <table id="sectionsTable"></table>
+          <table id="blocksTable"></table>
         </div>
-        <div class="pagination-bar" id="sectionsTablePagination"></div>
+        <div class="pagination-bar" id="blocksTablePagination"></div>
+      </div>
+    </section>
+
+    <!-- SPARE Allocation View -->
+    <section id="spares" class="view">
+      <div class="section-header">
+        <div class="section-header-text">
+          <h2><i class="fas fa-user-group"></i> SPARE Allocation</h2>
+          <p>SPARE is a special allocation group, separate from regular Blocks -- handle it per course: join an existing Block's class, or plot it its own separate schedule.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="spareYearLevel"><i class="fas fa-graduation-cap"></i> Year Level</label>
+            <select id="spareYearLevel">
+              <option value="">Select year level</option>
+              <option value="1">1st Year</option>
+              <option value="2">2nd Year</option>
+              <option value="3">3rd Year</option>
+              <option value="4">4th Year</option>
+            </select>
+          </div>
+        </div>
+        <div id="spareContent"></div>
       </div>
     </section>
 
@@ -917,6 +951,11 @@
               <option value="other">Other</option>
             </select>
           </div>
+          <div class="form-group">
+            <label for="courseMaxStudents"><i class="fas fa-user-group"></i> Course Capacity <span class="optional">(optional)</span></label>
+            <input id="courseMaxStudents" type="number" min="1" step="1" placeholder="e.g. 30" />
+            <p class="field-hint">Reference only, for deciding when SPARE allocation is needed -- not enforced when plotting. Leave blank for no limit.</p>
+          </div>
         </form>
       </div>
       <div class="modal-footer">
@@ -928,17 +967,18 @@
     </div>
   </div>
 
-  <div class="modal-overlay hidden" id="modalSection">
+  <!-- Add Block: Year Level + Number of Blocks -> auto-generates "Block N" names, never typed by hand -->
+  <div class="modal-overlay hidden" id="modalBlock">
     <div class="modal modal-sm">
       <div class="modal-header">
-        <h3><i class="fas fa-layer-group"></i> <span id="modalSectionTitle">Add Section</span></h3>
-        <button class="modal-close" type="button" onclick="requestCloseEntityModal('sections')" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
+        <h3><i class="fas fa-layer-group"></i> Add Block</h3>
+        <button class="modal-close" type="button" onclick="closeAddBlockModal()" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
       </div>
       <div class="modal-body">
-        <form id="sectionForm" class="form-grid">
+        <form id="blockForm" class="form-grid">
           <div class="form-group">
-            <label for="sectionYear"><i class="fas fa-graduation-cap"></i> Year Level <span class="required">*</span></label>
-            <select id="sectionYear" required>
+            <label for="blockYearLevel"><i class="fas fa-graduation-cap"></i> Year Level <span class="required">*</span></label>
+            <select id="blockYearLevel" required>
               <option value="">Select year level</option>
               <option value="1">1st Year</option>
               <option value="2">2nd Year</option>
@@ -947,24 +987,65 @@
             </select>
           </div>
           <div class="form-group">
-            <label for="sectionNo"><i class="fas fa-hashtag"></i> Section No. <span class="required">*</span></label>
-            <input id="sectionNo" placeholder="e.g. 172" required />
-          </div>
-          <div class="form-group">
-            <label for="studentCount"><i class="fas fa-users"></i> Student Count <span class="required">*</span></label>
-            <input id="studentCount" type="number" min="1" max="30" value="30" required />
-            <p class="field-hint">Maximum of 30 students per section.</p>
+            <label for="numberOfBlocks"><i class="fas fa-hashtag"></i> Number of Blocks <span class="required">*</span></label>
+            <input id="numberOfBlocks" type="number" min="1" max="20" value="1" required />
+            <p class="field-hint">Blocks are auto-named Block 1, Block 2, ... and continue after any blocks that already exist for this year level.</p>
           </div>
         </form>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" type="button" onclick="requestCloseEntityModal('sections')">Cancel</button>
-        <button id="sectionSubmitBtn" class="btn btn-primary" type="submit" form="sectionForm">
-          <i class="fas fa-plus"></i> Add Section
+        <button class="btn btn-secondary" type="button" onclick="closeAddBlockModal()">Cancel</button>
+        <button id="blockSubmitBtn" class="btn btn-primary" type="submit" form="blockForm">
+          <i class="fas fa-plus"></i> Create Blocks
         </button>
       </div>
     </div>
   </div>
+
+  <!-- Rename a single block (block name only -- year level/numbering are structural) -->
+  <div class="modal-overlay hidden" id="modalBlockRename">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h3><i class="fas fa-pen"></i> Rename Block</h3>
+        <button class="modal-close" type="button" onclick="closeBlockRenameModal()" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <form id="blockRenameForm" class="form-grid">
+          <div class="form-group">
+            <label for="blockRenameName"><i class="fas fa-tag"></i> Block Name <span class="required">*</span></label>
+            <input id="blockRenameName" required />
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" type="button" onclick="closeBlockRenameModal()">Cancel</button>
+        <button id="blockRenameSubmitBtn" class="btn btn-primary" type="submit" form="blockRenameForm">
+          <i class="fas fa-check"></i> Save
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Assign Courses to a Block: Year Level + Block -> pick Courses -->
+  <div class="modal-overlay hidden" id="modalAssignBlockCourses">
+    <div class="modal">
+      <div class="modal-header">
+        <h3><i class="fas fa-book"></i> Assign Courses -- <span id="assignBlockCoursesLabel"></span></h3>
+        <button class="modal-close" type="button" onclick="closeAssignBlockCoursesModal()" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <p class="field-hint">Only courses matching this block's Year Level are shown. The same course can be assigned to multiple blocks.</p>
+        <div class="checklist" id="assignBlockCoursesList"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" type="button" onclick="closeAssignBlockCoursesModal()">Cancel</button>
+        <button id="assignBlockCoursesSubmitBtn" class="btn btn-primary" type="button" onclick="saveAssignBlockCourses()">
+          <i class="fas fa-check"></i> Save Assignments
+        </button>
+      </div>
+    </div>
+  </div>
+
 
   <div class="modal-overlay hidden" id="modalFaculty">
     <div class="modal modal-sm">
@@ -1015,10 +1096,6 @@
               <option value="lecture">Lecture</option>
               <option value="laboratory">Laboratory</option>
             </select>
-          </div>
-          <div class="form-group">
-            <label for="roomCapacity"><i class="fas fa-users"></i> Capacity <span class="required">*</span></label>
-            <input id="roomCapacity" type="number" min="1" required />
           </div>
           <div class="form-group form-check">
             <label for="roomActive"><input id="roomActive" type="checkbox" checked /> Available for new schedules</label>
@@ -1085,7 +1162,7 @@
     </div>
   </div>
 
-  <!-- Hidden file pickers for CSV Import (Courses / Sections). One shared
+  <!-- Hidden file pickers for CSV Import (Courses / Blocks). One shared
        results modal reports what got imported and lists any skipped rows. -->
   <input type="file" id="importFileInput" accept=".csv,text/csv" class="hidden" aria-label="Choose CSV file to import" />
 
