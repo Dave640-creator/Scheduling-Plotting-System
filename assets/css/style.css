@@ -2765,6 +2765,12 @@ tbody tr:last-child td {
 .offering-row:hover { background: var(--bg-hover, rgba(122,31,43,0.08)); }
 .offering-row.is-editing { outline: 2px solid var(--accent, #7a1f2b); outline-offset: -2px; }
 .offering-row-unscheduled td { color: var(--text-secondary, #888); font-style: italic; }
+
+/* Set/Day/Time/Room cells on an already-scheduled row are individually
+   clickable (Quick Edit popover for just that field) -- underline on hover
+   to hint that, distinct from the rest of the row which opens the full
+   Plot Schedule popover instead. */
+.offering-cell-editable:hover { text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; }
 .offering-code-cell { font-weight: 600; white-space: nowrap; }
 .offering-note-row td { font-style: italic; color: var(--text-secondary, #888); font-size: 0.8rem; }
 .offering-empty { padding: 14px; text-align: center; color: var(--text-secondary, #888); }

@@ -721,15 +721,15 @@ function renderOfferingRow(codeLabel, row) {
       <td><i class="fas fa-plus"></i></td>
     </tr>`;
   }
-  return `<tr class="offering-row${isEditingThis ? ' is-editing' : ''}" data-target="${targetValue}" data-course-id="${course.id}" data-component="${component}">
+  return `<tr class="offering-row${isEditingThis ? ' is-editing' : ''}" data-target="${targetValue}" data-course-id="${course.id}" data-component="${component}" data-schedule-id="${existing.id}">
     <td class="offering-code-cell">${escapeHtml(codeLabel)}</td>
-    <td>${escapeHtml((SET_LABELS_SHORT[existing.set_type] || existing.set_type).replace('SET ', ''))}</td>
+    <td class="offering-cell-editable" data-field="set">${escapeHtml((SET_LABELS_SHORT[existing.set_type] || existing.set_type).replace('SET ', ''))}</td>
     <td>${escapeHtml(course.course_code)}</td>
     <td>${escapeHtml(course.course_title)}</td>
     <td>${component === 'laboratory' ? 'LAB' : 'LEC'}</td>
-    <td>${escapeHtml(formatDayPattern(existing.day_of_week))}</td>
-    <td>${existing.start_time.slice(0, 5)}-${existing.end_time.slice(0, 5)}</td>
-    <td>${escapeHtml(existing.room_name || 'No room')}</td>
+    <td class="offering-cell-editable" data-field="day">${escapeHtml(formatDayPattern(existing.day_of_week))}</td>
+    <td class="offering-cell-editable" data-field="time">${existing.start_time.slice(0, 5)}-${existing.end_time.slice(0, 5)}</td>
+    <td class="offering-cell-editable" data-field="room">${escapeHtml(existing.room_name || 'No room')}</td>
     <td><i class="fas fa-pen"></i></td>
   </tr>`;
 }
@@ -791,11 +791,57 @@ function renderOfferingOverview() {
   container.innerHTML = html;
 
   container.querySelectorAll('.offering-row').forEach((tr) => {
+    // Unscheduled rows (no schedule-id yet) always open the full Plot
+    // Schedule popover -- a brand-new schedule needs every field at once,
+    // so there's no single cell that makes sense to edit in isolation.
+    if (!tr.dataset.scheduleId) {
+      tr.addEventListener('click', () => selectOfferingRow(tr.dataset.target, Number(tr.dataset.courseId), tr.dataset.component));
+      return;
+    }
+    // Already-scheduled rows: Set/Day/Time/Room cells each open a tiny
+    // Quick Edit popover for just that one field. Clicking anywhere else in
+    // the row (course code/title/type, or the pencil icon) falls back to
+    // the full Plot Schedule popover, since Faculty/Notes aren't shown as
+    // their own cell here.
+    tr.querySelectorAll('td[data-field]').forEach((td) => {
+      td.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openQuickEditModal(td.dataset.field, Number(tr.dataset.scheduleId));
+      });
+    });
     tr.addEventListener('click', () => selectOfferingRow(tr.dataset.target, Number(tr.dataset.courseId), tr.dataset.component));
   });
 }
 
-/** Loads one course-offering row (Block/SPARE + Course + Component) from the overview table into the Subject Offering form below, unlocked for editing, and scrolls to it. */
+/**
+ * Moves the real Faculty Assignment + Components sections (and the Save/
+ * Cancel buttons) out of the page and into the Plot Schedule popover, then
+ * opens it. Every field keeps its original id, so all existing wiring
+ * (validation, live conflict preview, faculty inheritance, etc.) keeps
+ * working completely unchanged -- only the visual container moves.
+ */
+function openPlotScheduleModal() {
+  const body = $('plotScheduleBody');
+  body.appendChild($('facultyAssignmentSection'));
+  body.appendChild($('componentsSection'));
+  body.appendChild($('scheduleFormActions'));
+  $('modalPlotSchedule').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+}
+window.openPlotScheduleModal = openPlotScheduleModal;
+
+/** Puts the relocated sections back where they normally live in the page (right after #scheduleSectionsAnchor), then hides the popover. */
+function closePlotScheduleModal() {
+  const modal = $('modalPlotSchedule');
+  if (modal.classList.contains('hidden')) return;
+  const anchor = $('scheduleSectionsAnchor');
+  anchor.after($('facultyAssignmentSection'), $('componentsSection'), $('scheduleFormActions'));
+  modal.classList.add('hidden');
+  document.body.style.overflow = '';
+}
+window.closePlotScheduleModal = closePlotScheduleModal;
+
+/** Loads one course-offering row (Block/SPARE + Course + Component) from the overview table into the Subject Offering form, unlocked for editing, and opens it as a popover right there instead of scrolling down the page. */
 function selectOfferingRow(targetValue, courseId, component) {
   $('scheduleTarget').value = targetValue;
   scheduleCourseCombobox.updateAvailability();
@@ -806,9 +852,175 @@ function selectOfferingRow(targetValue, courseId, component) {
   updateFacultyOptions();
   unlockComponentBlock(component);
   renderOfferingOverview();
-  $('componentsSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openPlotScheduleModal();
 }
 window.selectOfferingRow = selectOfferingRow;
+
+/**
+ * Quick Edit popover: lets an already-scheduled offering row's Set Type,
+ * Day Pattern, Time, or Room be changed on its own, without opening the
+ * full Plot Schedule form. Reuses the exact same save endpoint as that form
+ * (schedules.php?mode=offering) with a payload built from the schedule's
+ * current values plus the one changed field, so every server-side
+ * conflict/validation rule still applies exactly as it does for a normal save.
+ */
+let quickEditState = null;
+
+const QUICK_EDIT_TITLES = { set: 'Edit Set Type', day: 'Edit Day Pattern', time: 'Edit Time', room: 'Edit Room' };
+const QUICK_EDIT_SET_TYPE_LABELS = { set_0: 'SET 0 / Always F2F', set_1: 'SET 1 / F2F / Online Rotation', set_2: 'SET 2 / Online / F2F Rotation' };
+
+function openQuickEditModal(field, scheduleId) {
+  const existing = state.schedules.find((s) => Number(s.id) === scheduleId);
+  if (!existing) return;
+  quickEditState = { field, scheduleId };
+
+  $('quickEditTitle').innerHTML = `<i class="fas fa-pen"></i> ${QUICK_EDIT_TITLES[field]} \u2014 ${escapeHtml(existing.course_code)} (${existing.component === 'laboratory' ? 'LAB' : 'LEC'})`;
+  const body = $('quickEditBody');
+
+  if (field === 'set') {
+    const course = state.courses.find((c) => Number(c.id) === Number(existing.course_id));
+    const allowed = ALLOWED_SET_TYPES_BY_YEAR_LEVEL[Number(course ? course.year_level : existing.year_level)] || ['set_0'];
+    body.innerHTML = `<div class="form-group full-width">
+      <label for="qeSetType"><i class="fas fa-cogs"></i> Set Type</label>
+      <select id="qeSetType">${allowed.map((v) => `<option value="${v}">${escapeHtml(QUICK_EDIT_SET_TYPE_LABELS[v] || v)}</option>`).join('')}</select>
+    </div>`;
+    $('qeSetType').value = existing.set_type;
+  } else if (field === 'day') {
+    body.innerHTML = `<div class="form-group full-width">
+      <label for="qeDayPreset"><i class="fas fa-calendar-days"></i> Day Pattern</label>
+      <select id="qeDayPreset">
+        <option value="MWF">MWF - Monday/Wednesday/Friday</option>
+        <option value="TTH">TTH - Tuesday/Thursday</option>
+        <option value="MW">MW - Monday/Wednesday</option>
+        <option value="TF">TF - Tuesday/Friday</option>
+        <option value="Saturday">Saturday only</option>
+        <option value="Custom">Custom Days (choose below)</option>
+      </select>
+      <div id="qeCustomDaysRow" class="custom-days-row hidden">
+        <label class="day-checkbox"><input type="checkbox" value="Monday" /> Mon</label>
+        <label class="day-checkbox"><input type="checkbox" value="Tuesday" /> Tue</label>
+        <label class="day-checkbox"><input type="checkbox" value="Wednesday" /> Wed</label>
+        <label class="day-checkbox"><input type="checkbox" value="Thursday" /> Thu</label>
+        <label class="day-checkbox"><input type="checkbox" value="Friday" /> Fri</label>
+        <label class="day-checkbox"><input type="checkbox" value="Saturday" /> Sat</label>
+        <label class="day-checkbox"><input type="checkbox" value="Sunday" /> Sun</label>
+      </div>
+    </div>`;
+    const daySelect = $('qeDayPreset');
+    const customRow = $('qeCustomDaysRow');
+    if (DAY_PRESET_VALUES.includes(existing.day_of_week)) {
+      daySelect.value = existing.day_of_week;
+    } else {
+      daySelect.value = 'Custom';
+      customRow.classList.remove('hidden');
+      const days = scheduleDaysFor(existing.day_of_week);
+      customRow.querySelectorAll('input[type="checkbox"]').forEach((cb) => { cb.checked = days.includes(cb.value); });
+    }
+    daySelect.addEventListener('change', () => customRow.classList.toggle('hidden', daySelect.value !== 'Custom'));
+  } else if (field === 'time') {
+    body.innerHTML = `<div class="form-group">
+        <label for="qeStartTime"><i class="fas fa-clock"></i> Start Time</label>
+        <input type="time" id="qeStartTime" />
+      </div>
+      <div class="form-group">
+        <label for="qeEndTime"><i class="fas fa-clock"></i> End Time</label>
+        <input type="time" id="qeEndTime" />
+      </div>`;
+    $('qeStartTime').value = existing.start_time.slice(0, 5);
+    $('qeEndTime').value = existing.end_time.slice(0, 5);
+  } else if (field === 'room') {
+    body.innerHTML = `<div class="form-group full-width">
+      <label for="qeRoom"><i class="fas fa-door-open"></i> Room</label>
+      <select id="qeRoom"></select>
+    </div>`;
+    let roomsList = state.rooms.filter((r) => Number(r.is_active) === 1 || Number(r.id) === Number(existing.room_id));
+    roomsList = roomsList.filter((r) => r.room_type === (existing.component === 'laboratory' ? 'laboratory' : 'lecture'));
+    fillSelect('qeRoom', roomsList, (r) => `${r.room_name} - ${r.room_type}` + (Number(r.is_active) === 0 ? ' (Inactive)' : ''), 'id', 'No room selected');
+    $('qeRoom').value = existing.room_id || '';
+  }
+
+  $('modalQuickEdit').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+}
+window.openQuickEditModal = openQuickEditModal;
+
+function closeQuickEditModal() {
+  $('modalQuickEdit').classList.add('hidden');
+  document.body.style.overflow = '';
+  quickEditState = null;
+}
+window.closeQuickEditModal = closeQuickEditModal;
+
+async function submitQuickEdit() {
+  if (!quickEditState) return;
+  const existing = state.schedules.find((s) => Number(s.id) === quickEditState.scheduleId);
+  if (!existing) { closeQuickEditModal(); return; }
+
+  const patch = {};
+  if (quickEditState.field === 'set') {
+    patch.set_type = $('qeSetType').value;
+  } else if (quickEditState.field === 'day') {
+    const preset = $('qeDayPreset').value;
+    if (preset === 'Custom') {
+      const days = [...document.querySelectorAll('#qeCustomDaysRow input[type="checkbox"]:checked')].map((cb) => cb.value);
+      if (!days.length) { showToast('Pick at least one day.', 'warning'); return; }
+      patch.day_of_week = days.join(',');
+    } else {
+      patch.day_of_week = preset;
+    }
+  } else if (quickEditState.field === 'time') {
+    const start = $('qeStartTime').value;
+    const end = $('qeEndTime').value;
+    if (!start || !end) { showToast('Set both a Start Time and End Time.', 'warning'); return; }
+    if (end <= start) { showToast('End Time must be after Start Time.', 'warning'); return; }
+    patch.start_time = start;
+    patch.end_time = end;
+  } else if (quickEditState.field === 'room') {
+    patch.room_id = $('qeRoom').value;
+  }
+
+  const body = {
+    school_year: existing.school_year,
+    course_id: existing.course_id,
+    block_id: existing.block_id,
+    spare_id: existing.spare_id,
+    faculty_id: existing.faculty_id,
+    components: [{
+      id: existing.id,
+      component: existing.component,
+      set_type: existing.set_type,
+      day_of_week: existing.day_of_week,
+      start_time: existing.start_time.slice(0, 5),
+      end_time: existing.end_time.slice(0, 5),
+      room_id: existing.room_id || '',
+      notes: existing.notes || '',
+      ...patch,
+    }],
+  };
+
+  const saveBtn = $('quickEditSaveBtn');
+  const originalLabel = saveBtn.innerHTML;
+  saveBtn.disabled = true;
+  saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+
+  try {
+    await request('schedules.php?mode=offering', { method: 'POST', body: JSON.stringify(body) });
+    showToast('Schedule updated', 'success');
+    closeQuickEditModal();
+    await loadAll();
+  } catch (err) {
+    if (err.data && (err.data.conflict_type === 'instructor_mismatch' || err.data.conflict_type === 'duplicate_component')) {
+      closeQuickEditModal();
+      showInstructorConflictModal(err.message, err.data.existing_schedule_id, err.data.conflict_type);
+    } else {
+      showToast(err.message, 'error');
+    }
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.innerHTML = originalLabel;
+  }
+}
+window.submitQuickEdit = submitQuickEdit;
 
 /** Year Level changed on the Plot Schedule form: rebuild the Block/SPARE Target list, then reset the whole downstream chain (Course, Faculty, component blocks), per the "reset dependent selections" requirement. */
 function onYearLevelChange() {
@@ -3198,8 +3410,7 @@ formSubmit('facultyCourseForm', () => ({ faculty_id: $('assignFaculty').value, c
  * already-saved, still-locked sibling component is left untouched
  * server-side and still counts toward the completeness check there.
  */
-$('scheduleForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
+async function submitScheduleForm() {
   if (!validateForm('scheduleForm')) return;
 
   const componentsPayload = COMPONENT_TYPES
@@ -3242,6 +3453,7 @@ $('scheduleForm').addEventListener('submit', async (e) => {
   try {
     await request('schedules.php?mode=offering', { method: 'POST', body: JSON.stringify(body) });
     showToast('Subject offering saved successfully', 'success');
+    closePlotScheduleModal();
     cancelEdit('schedules');
     await loadAll();
   } catch (err) {
@@ -3253,6 +3465,14 @@ $('scheduleForm').addEventListener('submit', async (e) => {
     submitBtn.disabled = false;
     submitBtn.innerHTML = originalLabel;
   }
+}
+
+// The native <form> submit (Enter key, or the relocated Save Schedule button
+// which keeps form="scheduleForm") still goes through the normal event --
+// just delegate it to the extracted function above.
+$('scheduleForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  submitScheduleForm();
 });
 
 function onOfferingContextChange() {

@@ -75,6 +75,23 @@
     </div>
   </div>
 
+  <!-- Quick Edit popover: clicking a single Set/Day/Time/Room cell on an
+       ALREADY-scheduled Course Offering row opens this instead of navigating
+       to the Plot Schedule form -- edits just that one field in place. -->
+  <div id="modalQuickEdit" class="modal-overlay hidden">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h3 id="quickEditTitle"><i class="fas fa-pen"></i> Quick Edit</h3>
+        <button class="modal-close" type="button" onclick="closeQuickEditModal()" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
+      </div>
+      <div class="modal-body form-grid" id="quickEditBody"></div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" type="button" onclick="closeQuickEditModal()">Cancel</button>
+        <button id="quickEditSaveBtn" class="btn btn-primary" type="button" onclick="submitQuickEdit()"><i class="fas fa-check"></i> Save</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Main App Shell -->
   <div id="appShell" class="hidden">
 
@@ -381,9 +398,15 @@
 
           <div class="form-section" id="offeringOverviewSection">
             <div class="form-section-title"><i class="fas fa-table-list"></i> Course Offering</div>
-            <p class="field-hint full-width">Pick a Year Level above to see every Block's courses at once, like the printed Course Offering sheet. Click any row to plot or edit that course's schedule below.</p>
+            <p class="field-hint full-width">Pick a Year Level above to see every Block's courses at once, like the printed Course Offering sheet. Click an unscheduled row to plot it, or click a Set/Day/Time/Room cell on a scheduled row to quick-edit just that field.</p>
             <div id="offeringOverview" class="full-width"></div>
           </div>
+
+          <!-- Anchor marking where Faculty Assignment / Components / the
+               Save buttons normally live in the page. openPlotScheduleModal()
+               moves those three pieces in front of this marker into the
+               popover below, and restores them right back here on close. -->
+          <div id="scheduleSectionsAnchor"></div>
 
           <div class="form-section" id="facultyAssignmentSection">
             <div class="form-section-title"><i class="fas fa-chalkboard-user"></i> Faculty Assignment</div>
@@ -584,13 +607,29 @@
             </div>
           </div>
 
-          <div class="form-actions">
+          <div class="form-actions" id="scheduleFormActions">
             <button id="scheduleCancelBtn" class="btn btn-secondary hidden" type="button" onclick="requestCancelEdit('schedules')">
               <i class="fas fa-xmark"></i> Cancel Edit
             </button>
-            <button id="scheduleSubmitBtn" class="btn btn-primary" type="submit">
+            <button id="scheduleSubmitBtn" class="btn btn-primary" type="submit" form="scheduleForm">
               <i class="fas fa-save"></i> Save Schedule
             </button>
+          </div>
+
+          <!-- Plot Schedule popover: clicking an unscheduled Course Offering
+               row opens this. openPlotScheduleModal() relocates the real
+               Faculty Assignment + Components sections (and the Save/Cancel
+               buttons above) into #plotScheduleBody, so every existing
+               validation/conflict/faculty-inheritance rule keeps working
+               unchanged -- only WHERE it's shown changes, not the logic. -->
+          <div id="modalPlotSchedule" class="modal-overlay hidden">
+            <div class="modal">
+              <div class="modal-header">
+                <h3 id="plotScheduleTitle"><i class="fas fa-calendar-plus"></i> Plot Schedule</h3>
+                <button class="modal-close" type="button" onclick="closePlotScheduleModal()" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
+              </div>
+              <div class="modal-body" id="plotScheduleBody"></div>
+            </div>
           </div>
         </form>
       </div>
