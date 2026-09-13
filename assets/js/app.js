@@ -688,7 +688,7 @@ function renderTargetOptions() {
 }
 
 /**
- * The Course Offering overview: pick a Year Level (+ School Year) and see
+ * The Course Offering overview: pick a Year Level (+ Academic Year) and see
  * every Block for that year, plus SPARE, in one continuous report -- like
  * the printed Course Offering sheet -- instead of picking one Block at a
  * time. Each row is one component (Lecture/Laboratory) of one course
@@ -740,7 +740,7 @@ function renderOfferingOverview() {
   const schoolYear = $('scheduleSchoolYear').value;
 
   if (!yearLevel || !schoolYear) {
-    container.innerHTML = `<div class="offering-empty"><i class="fas fa-arrow-up"></i> Select a School Year and Year Level above to see this year level's full course offering.</div>`;
+    container.innerHTML = `<div class="offering-empty"><i class="fas fa-arrow-up"></i> Select an Academic Year and Year Level above to see this year level's full course offering.</div>`;
     return;
   }
 
@@ -822,20 +822,23 @@ function renderOfferingOverview() {
  */
 function openPlotScheduleModal() {
   const body = $('plotScheduleBody');
-  body.appendChild($('facultyAssignmentSection'));
-  body.appendChild($('componentsSection'));
-  body.appendChild($('scheduleFormActions'));
+  ['facultyAssignmentSection', 'componentsSection', 'scheduleFormActions'].forEach((id) => {
+    const el = $(id);
+    el.classList.remove('hidden');
+    body.appendChild(el);
+  });
   $('modalPlotSchedule').classList.remove('hidden');
   document.body.style.overflow = 'hidden';
 }
 window.openPlotScheduleModal = openPlotScheduleModal;
 
-/** Puts the relocated sections back where they normally live in the page (right after #scheduleSectionsAnchor), then hides the popover. */
+/** Puts the relocated sections back where they normally live in the page (right after #scheduleSectionsAnchor), re-hides them, then hides the popover. */
 function closePlotScheduleModal() {
   const modal = $('modalPlotSchedule');
   if (modal.classList.contains('hidden')) return;
   const anchor = $('scheduleSectionsAnchor');
   anchor.after($('facultyAssignmentSection'), $('componentsSection'), $('scheduleFormActions'));
+  ['facultyAssignmentSection', 'componentsSection', 'scheduleFormActions'].forEach((id) => $(id).classList.add('hidden'));
   modal.classList.add('hidden');
   document.body.style.overflow = '';
 }
@@ -1298,7 +1301,7 @@ function courseRequiresComponent(course, component) {
   return component === 'lecture' ? Number(course.lec_units) > 0 : Number(course.lab_units) > 0;
 }
 
-/** Finds the already-saved schedule row (if any) for one component of the current Course + Block/SPARE + School Year "subject offering". */
+/** Finds the already-saved schedule row (if any) for one component of the current Course + Block/SPARE + Academic Year "subject offering". */
 function findExistingComponentSchedule(courseId, target, schoolYear, component) {
   if (!courseId || !target || !schoolYear) return null;
   return state.schedules.find((s) =>
@@ -1309,7 +1312,7 @@ function findExistingComponentSchedule(courseId, target, schoolYear, component) 
   ) || null;
 }
 
-/** true once the scheduler has clicked "Edit" on an already-saved component, unlocking its fields for this session. Reset whenever the Course/Target/School Year selection changes. */
+/** true once the scheduler has clicked "Edit" on an already-saved component, unlocking its fields for this session. Reset whenever the Course/Target/Academic Year selection changes. */
 const componentUnlocked = { lecture: false, laboratory: false };
 const componentHasConflict = { lecture: false, laboratory: false };
 /** true when the component's currently selected Day Pattern + Duration does NOT total the course's required weekly hours exactly (see WEEKLY HOURS VALIDATION below). Blocks Save the same way componentHasConflict does. */
@@ -1326,6 +1329,11 @@ function existingComponentId(component) {
 /** ids of schedule rows currently open for editing in this form, so the faculty-inheritance lookup doesn't treat a component as its own "sibling". */
 function currentEditingScheduleIds() {
   return COMPONENT_TYPES.map((c) => (componentUnlocked[c] ? existingComponentId(c) : null)).filter((id) => id !== null);
+}
+
+/** All Faculty Course Assignment rows (with course_code/course_title already joined server-side) for one faculty member -- powers the Assigned Courses column on the Faculty table. */
+function coursesAssignedToFaculty(facultyId) {
+  return state.assignments.filter((a) => Number(a.faculty_id) === Number(facultyId));
 }
 
 function getQualifiedFacultyForCourse(courseId) {
@@ -1373,7 +1381,7 @@ function renderFilterOptions() {
   $('filterTarget').innerHTML = `<option value="">All Blocks</option>${blockOptions}${spareOptions}`;
   fillSelect('filterFaculty', state.faculty, (f) => f.faculty_name, 'id', 'All Faculty');
   const schoolYears = [...new Set(state.schedules.map((s) => s.school_year))].sort().reverse();
-  $('filterSchoolYear').innerHTML = '<option value="">All School Years</option>' + schoolYears.map((sy) => `<option value="${escapeHtml(sy)}">${escapeHtml(sy)}</option>`).join('');
+  $('filterSchoolYear').innerHTML = '<option value="">All Academic Years</option>' + schoolYears.map((sy) => `<option value="${escapeHtml(sy)}">${escapeHtml(sy)}</option>`).join('');
   if (schoolYears.includes(prevSchoolYear)) $('filterSchoolYear').value = prevSchoolYear;
   const targetStillValid = [...$('filterTarget').options].some((o) => o.value === prevTarget);
   $('filterTarget').value = targetStillValid ? prevTarget : '';
@@ -1819,13 +1827,13 @@ function renderTimetable() {
     filtered = targetValue ? filtered.filter((s) => (blockId ? Number(s.block_id) === blockId : Number(s.spare_id) === spareId)) : [];
     const target = blockId ? state.blocks.find((b) => Number(b.id) === blockId) : state.spares.find((sp) => Number(sp.id) === spareId);
     const label = target ? (blockId ? blockLabel(target) : spareLabel(target)) : null;
-    heading = label ? `${escapeHtml(label)} &nbsp;|&nbsp; SY ${escapeHtml(schoolYear)}${semesterLabel ? ' &nbsp;|&nbsp; ' + escapeHtml(semesterLabel) : ''}` : 'Select a block above to view its timetable.';
+    heading = label ? `${escapeHtml(label)} &nbsp;|&nbsp; AY ${escapeHtml(schoolYear)}${semesterLabel ? ' &nbsp;|&nbsp; ' + escapeHtml(semesterLabel) : ''}` : 'Select a block above to view its timetable.';
     $('ttSummaryCard').classList.add('hidden');
   } else {
     const facultyId = $('ttFaculty').value;
     filtered = facultyId ? filtered.filter((s) => String(s.faculty_id) === facultyId) : [];
     const fac = state.faculty.find((f) => String(f.id) === facultyId);
-    heading = fac ? `${escapeHtml(fac.faculty_name)} &nbsp;|&nbsp; SY ${escapeHtml(schoolYear)}${semesterLabel ? ' &nbsp;|&nbsp; ' + escapeHtml(semesterLabel) : ''}` : 'Select a faculty above to view their load.';
+    heading = fac ? `${escapeHtml(fac.faculty_name)} &nbsp;|&nbsp; AY ${escapeHtml(schoolYear)}${semesterLabel ? ' &nbsp;|&nbsp; ' + escapeHtml(semesterLabel) : ''}` : 'Select a faculty above to view their load.';
     if (fac) {
       const uniqueCourseIds = [...new Set(filtered.map((s) => s.course_id))];
       const totalUnits = uniqueCourseIds.reduce((sum, cid) => {
@@ -1904,7 +1912,7 @@ function fillPrintLetterhead(title, subtitle) {
 
 function printSchedules() {
   const parts = [];
-  if (scheduleFilters.schoolYear) parts.push(`SY ${scheduleFilters.schoolYear}`);
+  if (scheduleFilters.schoolYear) parts.push(`AY ${scheduleFilters.schoolYear}`);
   if (scheduleFilters.semester) {
     const label = { first_semester: 'First Semester', second_semester: 'Second Semester', summer: 'Summer' }[scheduleFilters.semester] || scheduleFilters.semester;
     parts.push(label);
@@ -2043,7 +2051,7 @@ function updateComponentBlocks() {
 
   const statusEl = $('componentsStatus');
   if (!course || !target || !schoolYear) {
-    statusEl.textContent = '\ud83d\udd12 Select a course, block, and school year first to see the required components.';
+    statusEl.textContent = '\ud83d\udd12 Select a course, block, and academic year first to see the required components.';
   } else if (requiredCount === 0) {
     statusEl.textContent = '\u26a0 This course has no lecture or laboratory units to plot.';
   } else {
@@ -2579,6 +2587,13 @@ function renderTables() {
     { key: 'faculty_name', label: 'Faculty' },
     { key: 'max_preparations', label: 'Max Preparations' },
     { key: 'is_active', label: 'Status', sortValue: (f) => Number(f.is_active), render: (f) => Number(f.is_active) === 1 ? '<span class="badge active">Active</span>' : '<span class="badge inactive">Unavailable</span>' },
+    { key: 'assigned_courses', label: 'Assigned Courses',
+      searchValue: (f) => coursesAssignedToFaculty(f.id).map((a) => `${a.course_code} ${a.course_title}`).join(' '),
+      render: (f) => {
+        const courses = coursesAssignedToFaculty(f.id);
+        if (!courses.length) return '<span class="faculty-no-courses">No courses assigned yet</span>';
+        return courses.map((a) => `<span class="badge course-chip" title="${escapeHtml(a.course_title)}">${escapeHtml(a.course_code)}</span>`).join('');
+      } },
   ], state.faculty, {
     emptyIcon: 'fa-chalkboard-user',
     emptyMessage: 'No faculty members have been added yet.',
@@ -2609,7 +2624,7 @@ function renderTables() {
 }
 
 const SCHEDULES_TABLE_COLUMNS = [
-  { key: 'school_year', label: 'SY' },
+  { key: 'school_year', label: 'AY' },
   { key: 'day_of_week', label: 'Day Pattern', render: (s) => escapeHtml(formatDayPattern(s.day_of_week)) },
   { key: 'start_time', label: 'Time', render: (s) => `${s.start_time.slice(0, 5)}-${s.end_time.slice(0, 5)}` },
   { key: 'course_code', label: 'Course', searchValue: (s) => `${s.course_code} ${s.course_title}`, render: (s) => `${escapeHtml(s.course_code)}<br><small>${escapeHtml(s.course_title)}</small>` },
@@ -2853,7 +2868,7 @@ function unlockComponentBlock(component) {
 window.unlockComponentBlock = unlockComponentBlock;
 
 /**
- * Loads a whole subject offering (Course + Block/SPARE + School Year) into
+ * Loads a whole subject offering (Course + Block/SPARE + Academic Year) into
  * the Plot Schedule form for editing, unlocking the one component the
  * scheduler clicked Edit on from the Schedules table. Any sibling
  * component keeps showing as its locked, read-only summary unless it's

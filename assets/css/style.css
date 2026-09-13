@@ -1066,7 +1066,10 @@ select:focus-visible,
   gap: var(--spacing-sm);
 }
 
-.form-group.full-width {
+/* .full-width is a general utility (not only for .form-group items) --
+   any direct child of a .form-grid/.form-section grid that needs to span
+   every column uses this, e.g. hint text and the Course Offering table. */
+.full-width {
   grid-column: 1 / -1;
 }
 
@@ -2043,6 +2046,23 @@ tbody tr:last-child td {
 .badge.inactive {
   background: #fef2f2;
   color: #991b1b;
+}
+
+/* Small course-code chips shown in the Faculty table's Assigned Courses
+   column (one per course assigned to that faculty member via Faculty
+   Course Assignments) -- neutral color since it's informational, not a
+   status like the badges above. */
+.badge.course-chip {
+  background: var(--bg-tertiary, #f3f4f6);
+  color: var(--text-secondary, #4b5563);
+  font-weight: 600;
+  margin: 2px 3px 2px 0;
+}
+
+.faculty-no-courses {
+  color: var(--text-secondary, #9ca3af);
+  font-style: italic;
+  font-size: 13px;
 }
 
 /* =====================================================
