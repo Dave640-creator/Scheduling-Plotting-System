@@ -178,7 +178,7 @@
     <!-- Print-only letterhead. Hidden on screen; shown and populated by JS
          only when the user clicks Print, so the printed page reads as a
          clean official document instead of the app's screen UI. -->
-    <div id="printLetterhead" class="print-letterhead">
+    <div class="print-letterhead">
       <div class="print-letterhead-logos">
         <img src="assets/img/tcgc-logo.jpg" alt="TCGC Logo" />
         <img src="assets/img/ics-logo.png" alt="ICS Logo" />
@@ -625,7 +625,7 @@
           <div id="modalPlotSchedule" class="modal-overlay hidden">
             <div class="modal">
               <div class="modal-header">
-                <h3 id="plotScheduleTitle"><i class="fas fa-calendar-plus"></i> Plot Schedule</h3>
+                <h3><i class="fas fa-calendar-plus"></i> Plot Schedule</h3>
                 <button class="modal-close" type="button" onclick="closePlotScheduleModal()" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
               </div>
               <div class="modal-body" id="plotScheduleBody"></div>
@@ -789,6 +789,13 @@
             <i class="fas fa-search"></i>
             <input id="coursesSearch" placeholder="Search code or title..." />
           </div>
+          <select id="coursesYearFilter" aria-label="Filter by Year Level">
+            <option value="">All Year Levels</option>
+            <option value="1">1st Year</option>
+            <option value="2">2nd Year</option>
+            <option value="3">3rd Year</option>
+            <option value="4">4th Year</option>
+          </select>
           <button class="btn btn-secondary" type="button" onclick="triggerCsvImport('courses')">
             <i class="fas fa-file-csv"></i> Import CSV
           </button>
@@ -997,7 +1004,7 @@
           <div class="form-group">
             <label for="courseMaxStudents"><i class="fas fa-user-group"></i> Course Capacity <span class="optional">(optional)</span></label>
             <input id="courseMaxStudents" type="number" min="1" step="1" placeholder="e.g. 30" />
-            <p class="field-hint">Reference only, for deciding when SPARE allocation is needed -- not enforced when plotting. Leave blank for no limit.</p>
+            <p class="field-hint">Typical values: 30 for a course with both Lecture and Laboratory, 45 for a pure-lecture course. Reference only, for deciding when SPARE allocation is needed -- not enforced when plotting. Leave blank for no limit.</p>
           </div>
         </form>
       </div>

@@ -11,6 +11,7 @@ const editing = { courses: null, blocks: null, faculty: null, rooms: null, sched
 // Current schedule list filter selections. `target` is a composite value
 // like "block:12" or "spare:3" (or '' for no filter) -- see parseTargetValue().
 const scheduleFilters = { schoolYear: '', year: '', semester: '', target: '', faculty: '' };
+let coursesYearFilter = '';
 
 // Per-table UI state: free-text search, sort column/direction, current page.
 const tableState = {};
@@ -30,7 +31,7 @@ const deleteConfig = {
   faculty:     { endpoint: 'faculty.php',         stateKey: 'faculty',     labelFn: f => f.faculty_name },
   rooms:       { endpoint: 'rooms.php',           stateKey: 'rooms',       labelFn: r => r.room_name },
   assignments: { endpoint: 'faculty_courses.php', stateKey: 'assignments', labelFn: a => `${a.faculty_name} \u2192 ${a.course_code}` },
-  schedules:   { endpoint: 'schedules.php',       stateKey: 'schedules',   labelFn: s => `${s.course_code} (${formatDayPattern(s.day_of_week)} ${s.start_time.slice(0,5)}-${s.end_time.slice(0,5)})` },
+  schedules:   { endpoint: 'schedules.php',       stateKey: 'schedules',   labelFn: s => `${s.course_code} (${formatDayPattern(s.day_of_week)} ${formatTimeDisplay(s.start_time.slice(0,5))}-${formatTimeDisplay(s.end_time.slice(0,5))})` },
 };
 
 const $ = (id) => document.getElementById(id);
@@ -103,11 +104,6 @@ function showToast(message, type = 'success') {
   container.appendChild(toast);
   const timer = setTimeout(remove, 4500);
   toast.dataset.toastTimer = String(timer);
-}
-
-/* Kept for internal fallback use; toasts are the primary feedback mechanism now. */
-function alertBox(message, type = 'success') {
-  showToast(message, type === 'error' ? 'error' : 'success');
 }
 
 /* =====================================================
@@ -271,6 +267,17 @@ function openEntityModal(entity) {
   document.body.style.overflow = 'hidden';
 }
 window.openEntityModal = openEntityModal;
+
+/** Course Capacity auto-fill: as soon as Lab Units is entered, default the
+    Capacity field to the standard 30 (course has a Laboratory component) or
+    45 (pure-lecture course) -- only while Capacity is still blank, so it
+    never overwrites a value the user (or an existing course being edited)
+    already has. */
+$('labUnits').addEventListener('input', () => {
+  if ($('courseMaxStudents').value.trim() !== '') return;
+  const hasLab = parseFloat($('labUnits').value || '0') > 0;
+  $('courseMaxStudents').value = hasLab ? '30' : '45';
+});
 
 function closeEntityModal(entity) {
   const cfg = formConfig[entity];
@@ -728,7 +735,7 @@ function renderOfferingRow(codeLabel, row) {
     <td>${escapeHtml(course.course_title)}</td>
     <td>${component === 'laboratory' ? 'LAB' : 'LEC'}</td>
     <td class="offering-cell-editable" data-field="day">${escapeHtml(formatDayPattern(existing.day_of_week))}</td>
-    <td class="offering-cell-editable" data-field="time">${existing.start_time.slice(0, 5)}-${existing.end_time.slice(0, 5)}</td>
+    <td class="offering-cell-editable" data-field="time">${formatTimeDisplay(existing.start_time.slice(0, 5))}-${formatTimeDisplay(existing.end_time.slice(0, 5))}</td>
     <td class="offering-cell-editable" data-field="room">${escapeHtml(existing.room_name || 'No room')}</td>
     <td><i class="fas fa-pen"></i></td>
   </tr>`;
@@ -1096,7 +1103,7 @@ function renderActivity() {
   const items = [
     ...state.courses.map((c) => ({ time: c.created_at, icon: 'fa-book', text: `Course added: ${c.course_code} - ${c.course_title}` })),
     ...state.faculty.map((f) => ({ time: f.created_at, icon: 'fa-chalkboard-user', text: `Faculty added: ${f.faculty_name}` })),
-    ...state.schedules.map((s) => ({ time: s.created_at, icon: 'fa-calendar-plus', text: `Schedule plotted: ${s.course_code} (${formatDayPattern(s.day_of_week)} ${s.start_time.slice(0, 5)}-${s.end_time.slice(0, 5)})` })),
+    ...state.schedules.map((s) => ({ time: s.created_at, icon: 'fa-calendar-plus', text: `Schedule plotted: ${s.course_code} (${formatDayPattern(s.day_of_week)} ${formatTimeDisplay(s.start_time.slice(0, 5))}-${formatTimeDisplay(s.end_time.slice(0, 5))})` })),
     ...state.assignments.map((a) => ({ time: a.created_at, icon: 'fa-user-tie', text: `Faculty assigned: ${a.faculty_name} \u2192 ${a.course_code}` })),
   ].filter((i) => i.time).sort((a, b) => new Date(String(b.time).replace(' ', 'T')) - new Date(String(a.time).replace(' ', 'T'))).slice(0, 8);
 
@@ -1494,6 +1501,12 @@ function openAssignBlockCoursesModal(blockId) {
   assignBlockCoursesTargetId = blockId;
   $('assignBlockCoursesLabel').textContent = blockLabel(b);
   const assignedIds = new Set(courseIdsForBlock(blockId));
+  // A block with nothing saved yet gets every one of this year level's
+  // courses pre-checked as a starting point (since blocks of the same year
+  // level usually share the same course offering) -- still fully editable
+  // before Save, and never overrides a block that already has a saved
+  // assignment (even an empty one the user deliberately cleared).
+  const isFreshBlock = assignedIds.size === 0;
   const coursesForYear = state.courses.filter((c) => Number(c.year_level) === Number(b.year_level))
     .sort((a, c) => String(a.course_code).localeCompare(String(c.course_code)));
   const list = $('assignBlockCoursesList');
@@ -1502,7 +1515,7 @@ function openAssignBlockCoursesModal(blockId) {
   } else {
     list.innerHTML = coursesForYear.map((c) => `
       <label class="checklist-item">
-        <input type="checkbox" value="${c.id}" ${assignedIds.has(Number(c.id)) ? 'checked' : ''} />
+        <input type="checkbox" value="${c.id}" ${(assignedIds.has(Number(c.id)) || isFreshBlock) ? 'checked' : ''} />
         <span><strong>${escapeHtml(c.course_code)}</strong> - ${escapeHtml(c.course_title)}</span>
       </label>`).join('');
   }
@@ -1549,6 +1562,26 @@ window.saveAssignBlockCourses = saveAssignBlockCourses;
    Schedule under the SPARE target).
    ===================================================== */
 
+/** For a pure-lecture course (no Lab units), works out whether SPARE is
+    actually needed for a given year level: assumes each Block runs at the
+    standard 30-student LEC+LAB size, and checks whether that many students
+    fit into fewer sections at the course's own (pure-lecture) Capacity --
+    e.g. 3 blocks x 30 = 90 students, 90 / 45 = 2 sections needed, so 1
+    block's worth of students doesn't need its own room+instructor and
+    should join another block via SPARE instead. Returns null for a
+    LEC+LAB course (Lab units > 0), since those always run 1 block = 1
+    section and SPARE doesn't apply. */
+function computeSpareRecommendation(course, numBlocks) {
+  const BLOCK_ASSUMED_SIZE = 30;
+  const hasLab = parseFloat(course.lab_units || 0) > 0;
+  if (hasLab || numBlocks <= 0) return null;
+  const capacity = Number(course.max_students) > 0 ? Number(course.max_students) : 45;
+  const totalStudents = numBlocks * BLOCK_ASSUMED_SIZE;
+  const sectionsNeeded = Math.max(1, Math.ceil(totalStudents / capacity));
+  const spareCount = Math.max(0, numBlocks - sectionsNeeded);
+  return { sectionsNeeded, spareCount, totalStudents, capacity, numBlocks };
+}
+
 function renderSpareYearLevelOptions() {
   // Just keeps the dropdown itself stable; content refresh happens on
   // 'change' and after loadAll() via renderSpareContent() below.
@@ -1590,12 +1623,22 @@ function renderSpareContent() {
     </div>
     ${coursesForYear.map((c) => {
       const alloc = allocByCourse[c.id];
-      const type = alloc ? alloc.allocation_type : '';
+      const rec = computeSpareRecommendation(c, blocksForYear.length);
+      // Only suggest a starting value when nothing's been saved for this
+      // course yet -- an existing allocation (however it was set) is never
+      // overridden by the calculation.
+      const type = alloc ? alloc.allocation_type : (rec && rec.spareCount > 0 ? 'join_block' : '');
       const showBlockSelect = type === 'join_block';
       const blockOptions = blocksForYear.map((b) => `<option value="${b.id}" ${alloc && Number(alloc.target_block_id) === Number(b.id) ? 'selected' : ''}>${escapeHtml(b.block_name)}</option>`).join('');
+      let hint = '';
+      if (rec) {
+        hint = rec.spareCount > 0
+          ? `<div class="spare-hint spare-hint-needed"><i class="fas fa-circle-info"></i> ${rec.numBlocks} blocks &times; 30 = ${rec.totalStudents} students &divide; ${rec.capacity}/section = ${rec.sectionsNeeded} section(s) needed &mdash; suggest SPARE for the leftover block${alloc ? '' : ' (pre-filled below, still yours to change)'}.</div>`
+          : `<div class="spare-hint spare-hint-ok"><i class="fas fa-circle-check"></i> ${rec.numBlocks} blocks fit exactly into ${rec.sectionsNeeded} section(s) at ${rec.capacity}/section &mdash; SPARE not needed for this course.</div>`;
+      }
       return `
       <div class="spare-allocation-row" data-course-id="${c.id}">
-        <div class="spare-allocation-course">${escapeHtml(c.course_code)}<br><small>${escapeHtml(c.course_title)}</small></div>
+        <div class="spare-allocation-course">${escapeHtml(c.course_code)}<br><small>${escapeHtml(c.course_title)}</small>${hint}</div>
         <div>
           <select class="spare-alloc-type" onchange="onSpareAllocationTypeChange(${spare.id},${c.id})">
             <option value="" ${!type ? 'selected' : ''}>None</option>
@@ -1971,7 +2014,7 @@ function componentSummaryText(schedule) {
   if (!schedule) return '';
   const fac = state.faculty.find((f) => Number(f.id) === Number(schedule.faculty_id));
   const room = schedule.room_name || 'No room selected';
-  return `${formatDayPattern(schedule.day_of_week)} ${schedule.start_time.slice(0, 5)}-${schedule.end_time.slice(0, 5)} \u00b7 ${room}` + (fac ? ` \u00b7 ${fac.faculty_name}` : '');
+  return `${formatDayPattern(schedule.day_of_week)} ${formatTimeDisplay(schedule.start_time.slice(0, 5))}-${formatTimeDisplay(schedule.end_time.slice(0, 5))} \u00b7 ${room}` + (fac ? ` \u00b7 ${fac.faculty_name}` : '');
 }
 
 function hasEditableComponent() {
@@ -2234,6 +2277,11 @@ function formatTimeLabel(mins) {
   return `${h}:${m.toString().padStart(2, '0')} ${ampm}`;
 }
 
+/** "15:30" -> "3:30 PM" -- for showing a start/end time as plain text anywhere in the UI. Never use this for an <input type="time"> value or an API payload -- those must stay 24-hour "HH:MM". */
+function formatTimeDisplay(hhmm) {
+  return formatTimeLabel(timeStrToMinutes(hhmm));
+}
+
 function populateTimeSelect(selectId, { startHour = 6, endHour = 21, stepMinutes = 30 } = {}) {
   const select = $(selectId);
   const options = [];
@@ -2309,7 +2357,7 @@ function findScheduleConflicts(dayPattern, start, end, { blockId, spareId, facul
     if (!daysOverlap(dayPattern, s.day_of_week)) continue;
     if (!timesOverlap(start, end, s.start_time.slice(0, 5), s.end_time.slice(0, 5))) continue;
 
-    const timeLabel = `${formatDayPattern(s.day_of_week)} ${s.start_time.slice(0, 5)}-${s.end_time.slice(0, 5)}`;
+    const timeLabel = `${formatDayPattern(s.day_of_week)} ${formatTimeDisplay(s.start_time.slice(0, 5))}-${formatTimeDisplay(s.end_time.slice(0, 5))}`;
     if (facultyId && Number(s.faculty_id) === Number(facultyId)) {
       conflicts.push({ type: 'Instructor', name: s.faculty_name, timeLabel });
     }
@@ -2566,6 +2614,7 @@ function filteredSchedules() {
 }
 
 function renderTables() {
+  const coursesForTable = coursesYearFilter ? state.courses.filter((c) => String(c.year_level) === coursesYearFilter) : state.courses;
   renderDataTable('coursesTable', [
     { key: 'course_code', label: 'Code' },
     { key: 'course_title', label: 'Title' },
@@ -2575,9 +2624,9 @@ function renderTables() {
     { key: 'lab_units', label: 'Lab' },
     { key: 'category', label: 'Category' },
     { key: 'max_students', label: 'Capacity', render: (c) => c.max_students ? escapeHtml(String(c.max_students)) : '\u2013' },
-  ], state.courses, {
+  ], coursesForTable, {
     emptyIcon: 'fa-book',
-    emptyMessage: 'No courses have been added yet.',
+    emptyMessage: coursesYearFilter ? 'No courses for this year level yet.' : 'No courses have been added yet.',
     rowActions: (c) => `<button class="btn btn-secondary btn-sm" onclick="editCourse(${c.id})" title="Edit" aria-label="Edit course"><i class="fas fa-pen"></i></button> <button class="btn btn-danger btn-sm" onclick="del('courses',${c.id})" title="Delete" aria-label="Delete course"><i class="fas fa-trash"></i></button>`,
   });
 
@@ -2592,7 +2641,20 @@ function renderTables() {
       render: (f) => {
         const courses = coursesAssignedToFaculty(f.id);
         if (!courses.length) return '<span class="faculty-no-courses">No courses assigned yet</span>';
-        return courses.map((a) => `<span class="badge course-chip" title="${escapeHtml(a.course_title)}">${escapeHtml(a.course_code)}</span>`).join('');
+        const rows = courses.map((a) => {
+          const schedules = state.schedules.filter((s) => Number(s.course_id) === Number(a.course_id) && Number(s.faculty_id) === Number(f.id));
+          if (!schedules.length) {
+            return `<div class="faculty-course-row">
+              <span class="faculty-course-code" title="${escapeHtml(a.course_title)}">${escapeHtml(a.course_code)}</span>
+              <span class="faculty-course-unscheduled">Not yet scheduled</span>
+            </div>`;
+          }
+          return schedules.map((s) => `<div class="faculty-course-row">
+            <span class="faculty-course-code" title="${escapeHtml(s.course_title)}">${escapeHtml(s.course_code)} (${s.component === 'laboratory' ? 'LAB' : 'LEC'})</span>
+            <span class="faculty-course-detail">${escapeHtml(formatDayPattern(s.day_of_week))} ${formatTimeDisplay(s.start_time.slice(0, 5))}-${formatTimeDisplay(s.end_time.slice(0, 5))} &middot; ${escapeHtml(s.room_name || 'No room')} &middot; ${escapeHtml(scheduleTargetLabel(s))}</span>
+          </div>`).join('');
+        }).join('');
+        return `<div class="faculty-course-list">${rows}</div>`;
       } },
   ], state.faculty, {
     emptyIcon: 'fa-chalkboard-user',
@@ -2626,7 +2688,7 @@ function renderTables() {
 const SCHEDULES_TABLE_COLUMNS = [
   { key: 'school_year', label: 'AY' },
   { key: 'day_of_week', label: 'Day Pattern', render: (s) => escapeHtml(formatDayPattern(s.day_of_week)) },
-  { key: 'start_time', label: 'Time', render: (s) => `${s.start_time.slice(0, 5)}-${s.end_time.slice(0, 5)}` },
+  { key: 'start_time', label: 'Time', render: (s) => `${formatTimeDisplay(s.start_time.slice(0, 5))}-${formatTimeDisplay(s.end_time.slice(0, 5))}` },
   { key: 'course_code', label: 'Course', searchValue: (s) => `${s.course_code} ${s.course_title}`, render: (s) => `${escapeHtml(s.course_code)}<br><small>${escapeHtml(s.course_title)}</small>` },
   { key: 'component', label: 'Component', render: (s) => `<span class="badge ${s.component === 'laboratory' ? 'lab' : 'lec'}">${escapeHtml(s.component)}</span>` },
   { key: 'block_name', label: 'Block', searchValue: (s) => scheduleTargetLabel(s), render: (s) => escapeHtml(s.is_spare || s.spare_id ? `${s.program_code} ${s.year_level} - SPARE` : `${s.program_code} ${s.year_level} - ${s.block_name}`) },
@@ -3541,6 +3603,19 @@ $('clearFiltersBtn').addEventListener('click', () => {
   renderTables();
   syncScheduleFiltersToHash();
 });
+
+// Guarded (not a plain $() call) on purpose: if this element is ever
+// missing -- e.g. index.html and app.js get out of sync during an update --
+// this must not throw and take down every listener registered after it
+// (search boxes, the login form, etc.) along with it.
+const coursesYearFilterEl = document.getElementById('coursesYearFilter');
+if (coursesYearFilterEl) {
+  coursesYearFilterEl.addEventListener('change', () => {
+    coursesYearFilter = coursesYearFilterEl.value;
+    getTableState('coursesTable').page = 1;
+    renderTables();
+  });
+}
 
 /* Free-text search boxes for every table */
 [

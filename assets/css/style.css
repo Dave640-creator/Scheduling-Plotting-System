@@ -1931,9 +1931,8 @@ tbody tr:last-child td {
   border-bottom: none;
 }
 
-/* Empty / loading states inside a table */
-.table-empty-state,
-.table-loading-state {
+/* Empty state inside a table */
+.table-empty-state {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1952,19 +1951,6 @@ tbody tr:last-child td {
 .table-empty-state p {
   font-size: 13.5px;
   font-weight: 500;
-}
-
-.table-loading-state .spinner {
-  width: 28px;
-  height: 28px;
-  border: 3px solid var(--border);
-  border-top-color: var(--primary);
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }
 
 /* Pagination */
@@ -2048,21 +2034,49 @@ tbody tr:last-child td {
   color: #991b1b;
 }
 
-/* Small course-code chips shown in the Faculty table's Assigned Courses
-   column (one per course assigned to that faculty member via Faculty
-   Course Assignments) -- neutral color since it's informational, not a
-   status like the badges above. */
-.badge.course-chip {
-  background: var(--bg-tertiary, #f3f4f6);
-  color: var(--text-secondary, #4b5563);
-  font-weight: 600;
-  margin: 2px 3px 2px 0;
-}
-
 .faculty-no-courses {
   color: var(--text-secondary, #9ca3af);
   font-style: italic;
   font-size: 13px;
+}
+
+/* Assigned Courses column on the Faculty table: one stacked row per
+   scheduled component (Course + Day/Time/Room + Block), so the schedule
+   is readable at a glance without opening the course separately. */
+.faculty-course-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.faculty-course-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--border-color, #e5e7eb);
+}
+
+.faculty-course-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.faculty-course-code {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary, #1f2937);
+}
+
+.faculty-course-detail {
+  font-size: 12px;
+  color: var(--text-secondary, #6b7280);
+}
+
+.faculty-course-unscheduled {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-secondary, #9ca3af);
 }
 
 /* =====================================================
@@ -2765,6 +2779,19 @@ tbody tr:last-child td {
 }
 .spare-allocation-row:last-child { border-bottom: none; }
 .spare-allocation-course { font-weight: 600; }
+
+/* Computed SPARE hint shown under each course on the SPARE Allocation page
+   -- purely informational, never blocks saving a different manual choice. */
+.spare-hint {
+  margin-top: 4px;
+  font-weight: 400;
+  font-size: 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+}
+.spare-hint-needed { color: #92400e; }
+.spare-hint-ok { color: #065f46; }
 
 /* Course Offering overview (Plot Schedule -> pick Year Level -> see every Block at once) */
 .offering-block-section { margin-bottom: 22px; }
