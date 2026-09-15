@@ -702,6 +702,40 @@ function renderTargetOptions() {
  * assigned to that block; clicking a row loads it into the Subject
  * Offering form below (unlocked for editing) via selectOfferingRow().
  */
+/**
+ * For a PURE LECTURE course (no Lab units) at one year level, works out
+ * which of the actual generated Blocks need their own dedicated Lecture
+ * section ("required") and which ones automatically join one of those
+ * instead ("spare" for this course) -- fully computed, no manual picking.
+ *
+ * Rule: every Block is assumed to already hold 30 real students (not
+ * empty seats). requiredBatches = CEILING(numBlocks x 30 / course
+ * Capacity, default 45). The first requiredBatches Blocks (by block_no)
+ * each get their own Lecture schedule; every Block beyond that joins one
+ * of the required Blocks' section (round-robin, for a rough balance)
+ * instead of consuming another room/instructor. The number of blocks is
+ * whatever actually exists for this year level -- never hard-coded --
+ * and there may be zero, one, or several "spare" blocks depending purely
+ * on this calculation, never assumed to always be exactly one.
+ *
+ * Returns null for a LEC+LAB course (Lab units > 0) or when there are no
+ * blocks -- those always run one dedicated section per Block, no
+ * batching, and their existing Lec+Lab courses are completely unaffected
+ * by this function.
+ */
+function computePureLectureBatchPlan(course, blocksForCourse) {
+  const hasLab = parseFloat(course.lab_units || 0) > 0;
+  if (hasLab || !blocksForCourse.length) return null;
+  const BLOCK_ASSUMED_SIZE = 30;
+  const capacity = Number(course.max_students) > 0 ? Number(course.max_students) : 45;
+  const sorted = [...blocksForCourse].sort((a, b) => a.block_no - b.block_no);
+  const totalStudents = sorted.length * BLOCK_ASSUMED_SIZE;
+  const requiredBatches = Math.min(sorted.length, Math.max(1, Math.ceil(totalStudents / capacity)));
+  const requiredBlocks = sorted.slice(0, requiredBatches);
+  const spareBlocks = sorted.slice(requiredBatches).map((b, i) => ({ block: b, joinsBlock: requiredBlocks[i % requiredBlocks.length] }));
+  return { capacity, totalStudents, requiredBatches, requiredBlocks, spareBlocks };
+}
+
 function offeringRowsForCourse(course, blockRow, spareRow, schoolYear) {
   const target = blockRow ? { type: 'block', id: blockRow.id } : { type: 'spare', id: spareRow.id };
   const rows = [];
@@ -711,6 +745,19 @@ function offeringRowsForCourse(course, blockRow, spareRow, schoolYear) {
     rows.push({ course, target, component, existing });
   });
   return rows;
+}
+
+/** A read-only row for a course a Block doesn't need its own Lecture section for (per computePureLectureBatchPlan) -- no click handler, nothing to plot, since those students automatically sit in with another Block's section. */
+function renderAutoJoinRow(codeLabel, course, joinsBlock) {
+  return `<tr class="offering-row offering-row-autojoin">
+    <td class="offering-code-cell">${escapeHtml(codeLabel)}</td>
+    <td>\u2013</td>
+    <td>${escapeHtml(course.course_code)}</td>
+    <td>${escapeHtml(course.course_title)}</td>
+    <td>LEC</td>
+    <td colspan="3"><i class="fas fa-arrow-right-to-bracket"></i> Auto-joins ${escapeHtml(joinsBlock.block_name)}'s Lecture section &mdash; no separate room/instructor needed</td>
+    <td></td>
+  </tr>`;
 }
 
 function renderOfferingRow(codeLabel, row) {
@@ -752,11 +799,10 @@ function renderOfferingOverview() {
   }
 
   const blocksForYear = state.blocks.filter((b) => Number(b.year_level) === Number(yearLevel)).sort((a, b) => a.block_no - b.block_no);
-  const spare = spareGroupForYearLevel(yearLevel);
-  const programCode = blocksForYear[0]?.program_code || spare?.program_code || 'BSCS';
+  const programCode = blocksForYear[0]?.program_code || 'BSCS';
   const yearLabel = YEAR_LEVEL_LABELS[yearLevel] || `Year ${yearLevel}`;
 
-  if (!blocksForYear.length && !spare) {
+  if (!blocksForYear.length) {
     container.innerHTML = `<div class="offering-empty"><i class="fas fa-layer-group"></i> No blocks exist yet for ${escapeHtml(yearLabel)}. Create some in Blocks first.</div>`;
     return;
   }
@@ -765,14 +811,44 @@ function renderOfferingOverview() {
   const codePrefix = { 1: 'A', 2: 'B', 3: 'C', 4: 'D' }[yearLevel] || 'X';
   const cols = '<tr><th>Code</th><th>Set</th><th>Course Code</th><th>Course Title</th><th>Type</th><th>Day</th><th>Time</th><th>Room</th><th></th></tr>';
 
+  // Work out, per pure-lecture course, which of THIS year level's actual
+  // Blocks need their own dedicated Lecture section vs which ones
+  // automatically join another Block instead -- computed fresh every
+  // render from however many Blocks actually exist right now, never
+  // hard-coded to a fixed count or a fixed "last block is spare" rule.
+  const pureLectureBatchPlans = new Map();
+  blocksForYear.forEach((block) => {
+    courseIdsForBlock(block.id).forEach((courseId) => {
+      if (pureLectureBatchPlans.has(courseId)) return;
+      const course = state.courses.find((c) => Number(c.id) === courseId);
+      if (!course) return;
+      const blocksForCourse = blocksForYear.filter((b) => courseIdsForBlock(b.id).includes(courseId));
+      const plan = computePureLectureBatchPlan(course, blocksForCourse);
+      if (plan) pureLectureBatchPlans.set(courseId, plan);
+    });
+  });
+
   let html = '';
 
   blocksForYear.forEach((block) => {
     const courseIds = courseIdsForBlock(block.id);
     const courses = courseIds.map((id) => state.courses.find((c) => Number(c.id) === id)).filter(Boolean)
       .sort((a, b) => Number(a.id) - Number(b.id));
-    const rowsHtml = courses.flatMap((course) => offeringRowsForCourse(course, block, null, schoolYear))
-      .map((row) => renderOfferingRow(`${codePrefix}${codeCounter++}`, row)).join('');
+    const rowsHtml = courses.flatMap((course) => {
+      const plan = pureLectureBatchPlans.get(course.id);
+      const spareEntry = plan && plan.spareBlocks.find((s) => Number(s.block.id) === Number(block.id));
+      if (spareEntry) {
+        // This Block doesn't need its own Lecture section for this
+        // course -- show the auto-join note instead of a plottable row.
+        // Any Laboratory component (if this ever had one) is unaffected
+        // since computePureLectureBatchPlan only returns a plan for
+        // Lab-less courses in the first place.
+        return [{ __autoJoin: true, course, joinsBlock: spareEntry.joinsBlock }];
+      }
+      return offeringRowsForCourse(course, block, null, schoolYear);
+    }).map((row) => row.__autoJoin
+      ? renderAutoJoinRow(`${codePrefix}${codeCounter++}`, row.course, row.joinsBlock)
+      : renderOfferingRow(`${codePrefix}${codeCounter++}`, row)).join('');
     html += `
       <div class="offering-block-section">
         <div class="offering-block-title">${escapeHtml(programCode)}<br>${escapeHtml(yearLabel)} Students (${escapeHtml(block.block_name.toUpperCase())})</div>
@@ -780,24 +856,13 @@ function renderOfferingOverview() {
       </div>`;
   });
 
-  if (spare) {
-    const separateCourseIds = (spare.allocations || []).filter((a) => a.allocation_type === 'separate_schedule').map((a) => Number(a.course_id));
-    const joinBlockAllocs = (spare.allocations || []).filter((a) => a.allocation_type === 'join_block');
-    const courses = separateCourseIds.map((id) => state.courses.find((c) => Number(c.id) === id)).filter(Boolean)
-      .sort((a, b) => Number(a.id) - Number(b.id));
-    const rowsHtml = courses.flatMap((course) => offeringRowsForCourse(course, null, spare, schoolYear))
-      .map((row) => renderOfferingRow(`${codePrefix}${codeCounter++}`, row)).join('');
-    const noteRows = joinBlockAllocs.map((a) => `<tr class="offering-note-row"><td colspan="9">${escapeHtml(a.course_code)} - SPARE joins ${escapeHtml(a.target_block_name || 'a block')} (no separate schedule)</td></tr>`).join('');
-    html += `
-      <div class="offering-block-section">
-        <div class="offering-block-title">${escapeHtml(programCode)}<br>${escapeHtml(yearLabel)} Students (SPARE)</div>
-        <table class="offering-table"><thead>${cols}</thead><tbody>${rowsHtml || (joinBlockAllocs.length ? '' : `<tr><td colspan="9" class="offering-empty">No SPARE allocations configured yet for this year level.</td></tr>`)}${noteRows}</tbody></table>
-      </div>`;
-  }
-
   container.innerHTML = html;
 
   container.querySelectorAll('.offering-row').forEach((tr) => {
+    // Auto-join rows are informational only -- nothing to plot or edit,
+    // since that Block's students for this course sit in on another
+    // Block's Lecture section automatically.
+    if (tr.classList.contains('offering-row-autojoin')) return;
     // Unscheduled rows (no schedule-id yet) always open the full Plot
     // Schedule popover -- a brand-new schedule needs every field at once,
     // so there's no single cell that makes sense to edit in isolation.
@@ -1443,6 +1508,18 @@ $('blockForm').addEventListener('submit', async (e) => {
       method: 'POST',
       body: JSON.stringify({ year_level: $('blockYearLevel').value, number_of_blocks: $('numberOfBlocks').value }),
     });
+    // Auto-assign every course that already exists for this year level to
+    // each new block, right away -- no separate trip to "Assign Courses"
+    // needed for the common case (blocks of the same year level share the
+    // same course offering). Best-effort: if this part fails, the blocks
+    // themselves are still created fine and can be assigned manually after.
+    const yearLevel = $('blockYearLevel').value;
+    const courseIdsForYear = state.courses.filter((c) => Number(c.year_level) === Number(yearLevel)).map((c) => c.id);
+    if (courseIdsForYear.length) {
+      await Promise.all(data.created.map((b) =>
+        request('block_courses.php', { method: 'POST', body: JSON.stringify({ block_id: b.id, course_ids: courseIdsForYear }) }).catch(() => null)
+      ));
+    }
     showToast(`${data.created.length} block(s) created: ${data.created.map((c) => c.block_name).join(', ')}`, 'success');
     closeAddBlockModal();
     await loadAll();
@@ -1553,34 +1630,11 @@ async function saveAssignBlockCourses() {
 window.saveAssignBlockCourses = saveAssignBlockCourses;
 
 /* =====================================================
-   SPARE ALLOCATION MANAGEMENT
-   SPARE is a special allocation group, separate from regular Blocks. One
-   SPARE group exists per Year Level, created on demand. Each of that year
-   level's courses is configured independently: no allocation yet, "joins"
-   an existing Block's class (informational only -- no schedule of its
-   own), or gets its own "separate" SPARE schedule (plottable in Plot
-   Schedule under the SPARE target).
+   SPARE / PURE-LECTURE AUTO-ALLOCATION (read-only, fully computed)
+   No manual picking anymore -- see computePureLectureBatchPlan() for the
+   calculation. This page just displays it per course for a chosen year
+   level, refreshed from however many Blocks and courses actually exist.
    ===================================================== */
-
-/** For a pure-lecture course (no Lab units), works out whether SPARE is
-    actually needed for a given year level: assumes each Block runs at the
-    standard 30-student LEC+LAB size, and checks whether that many students
-    fit into fewer sections at the course's own (pure-lecture) Capacity --
-    e.g. 3 blocks x 30 = 90 students, 90 / 45 = 2 sections needed, so 1
-    block's worth of students doesn't need its own room+instructor and
-    should join another block via SPARE instead. Returns null for a
-    LEC+LAB course (Lab units > 0), since those always run 1 block = 1
-    section and SPARE doesn't apply. */
-function computeSpareRecommendation(course, numBlocks) {
-  const BLOCK_ASSUMED_SIZE = 30;
-  const hasLab = parseFloat(course.lab_units || 0) > 0;
-  if (hasLab || numBlocks <= 0) return null;
-  const capacity = Number(course.max_students) > 0 ? Number(course.max_students) : 45;
-  const totalStudents = numBlocks * BLOCK_ASSUMED_SIZE;
-  const sectionsNeeded = Math.max(1, Math.ceil(totalStudents / capacity));
-  const spareCount = Math.max(0, numBlocks - sectionsNeeded);
-  return { sectionsNeeded, spareCount, totalStudents, capacity, numBlocks };
-}
 
 function renderSpareYearLevelOptions() {
   // Just keeps the dropdown itself stable; content refresh happens on
@@ -1588,6 +1642,16 @@ function renderSpareYearLevelOptions() {
   renderSpareContent();
 }
 
+/**
+ * SPARE page (read-only now): shows, per pure-lecture course in the
+ * selected year level, the computed Lecture batch plan from
+ * computePureLectureBatchPlan() -- which Blocks get their own section and
+ * which ones automatically join another, with the exact calculation shown.
+ * Nothing here is manually picked or saved; it's recomputed fresh from
+ * however many Blocks and courses actually exist right now. LEC+LAB
+ * courses aren't listed -- they always run one section per Block,
+ * unaffected by any of this.
+ */
 function renderSpareContent() {
   const container = $('spareContent');
   const yearLevel = $('spareYearLevel').value;
@@ -1595,140 +1659,41 @@ function renderSpareContent() {
     container.innerHTML = '';
     return;
   }
-  const spare = spareGroupForYearLevel(yearLevel);
-  if (!spare) {
-    container.innerHTML = `
-      <div class="table-empty-state">
-        <i class="fas fa-user-group"></i>
-        <p>No SPARE group exists yet for ${escapeHtml(YEAR_LEVEL_LABELS[yearLevel] || 'Year ' + yearLevel)}.</p>
-        <button class="btn btn-primary" type="button" onclick="createSpareGroup(${yearLevel})"><i class="fas fa-plus"></i> Create SPARE Group</button>
-      </div>`;
-    return;
-  }
 
-  const coursesForYear = state.courses.filter((c) => Number(c.year_level) === Number(yearLevel))
-    .sort((a, b) => String(a.course_code).localeCompare(String(b.course_code)));
   const blocksForYear = state.blocks.filter((b) => Number(b.year_level) === Number(yearLevel)).sort((a, b) => a.block_no - b.block_no);
-  const allocByCourse = {};
-  (spare.allocations || []).forEach((a) => { allocByCourse[a.course_id] = a; });
+  const pureLectureCourses = state.courses.filter((c) => Number(c.year_level) === Number(yearLevel) && parseFloat(c.lab_units || 0) === 0)
+    .sort((a, b) => String(a.course_code).localeCompare(String(b.course_code)));
 
-  if (!coursesForYear.length) {
-    container.innerHTML = `<div class="table-empty-state"><i class="fas fa-book"></i><p>No courses exist yet for this year level.</p></div>`;
+  if (!blocksForYear.length) {
+    container.innerHTML = `<div class="table-empty-state"><i class="fas fa-layer-group"></i><p>No blocks exist yet for ${escapeHtml(YEAR_LEVEL_LABELS[yearLevel] || 'Year ' + yearLevel)}.</p></div>`;
+    return;
+  }
+  if (!pureLectureCourses.length) {
+    container.innerHTML = `<div class="table-empty-state"><i class="fas fa-book"></i><p>No pure-lecture courses (no Lab units) exist yet for this year level -- SPARE batching only applies to those. LEC+LAB courses always get one section per block.</p></div>`;
     return;
   }
 
-  container.innerHTML = `
-    <div class="spare-allocation-row" style="font-weight:600;">
-      <div>Course</div><div>Allocation</div><div>Target Block</div><div></div>
-    </div>
-    ${coursesForYear.map((c) => {
-      const alloc = allocByCourse[c.id];
-      const rec = computeSpareRecommendation(c, blocksForYear.length);
-      // Only suggest a starting value when nothing's been saved for this
-      // course yet -- an existing allocation (however it was set) is never
-      // overridden by the calculation.
-      const type = alloc ? alloc.allocation_type : (rec && rec.spareCount > 0 ? 'join_block' : '');
-      const showBlockSelect = type === 'join_block';
-      const blockOptions = blocksForYear.map((b) => `<option value="${b.id}" ${alloc && Number(alloc.target_block_id) === Number(b.id) ? 'selected' : ''}>${escapeHtml(b.block_name)}</option>`).join('');
-      let hint = '';
-      if (rec) {
-        hint = rec.spareCount > 0
-          ? `<div class="spare-hint spare-hint-needed"><i class="fas fa-circle-info"></i> ${rec.numBlocks} blocks &times; 30 = ${rec.totalStudents} students &divide; ${rec.capacity}/section = ${rec.sectionsNeeded} section(s) needed &mdash; suggest SPARE for the leftover block${alloc ? '' : ' (pre-filled below, still yours to change)'}.</div>`
-          : `<div class="spare-hint spare-hint-ok"><i class="fas fa-circle-check"></i> ${rec.numBlocks} blocks fit exactly into ${rec.sectionsNeeded} section(s) at ${rec.capacity}/section &mdash; SPARE not needed for this course.</div>`;
-      }
-      return `
-      <div class="spare-allocation-row" data-course-id="${c.id}">
-        <div class="spare-allocation-course">${escapeHtml(c.course_code)}<br><small>${escapeHtml(c.course_title)}</small>${hint}</div>
-        <div>
-          <select class="spare-alloc-type" onchange="onSpareAllocationTypeChange(${spare.id},${c.id})">
-            <option value="" ${!type ? 'selected' : ''}>None</option>
-            <option value="join_block" ${type === 'join_block' ? 'selected' : ''}>Join Block</option>
-            <option value="separate_schedule" ${type === 'separate_schedule' ? 'selected' : ''}>Separate Schedule</option>
-          </select>
-        </div>
-        <div>
-          <select class="spare-alloc-block" ${showBlockSelect ? '' : 'disabled'} style="${showBlockSelect ? '' : 'visibility:hidden;'}">
-            <option value="">Select block</option>
-            ${blockOptions}
-          </select>
-        </div>
-        <div>
-          <button class="btn btn-primary btn-sm" type="button" onclick="saveSpareAllocation(${spare.id},${c.id})"><i class="fas fa-check"></i> Save</button>
-          ${alloc ? `<button class="btn btn-danger btn-sm" type="button" onclick="clearSpareAllocation(${spare.id},${c.id})"><i class="fas fa-trash"></i></button>` : ''}
-        </div>
+  container.innerHTML = pureLectureCourses.map((c) => {
+    const blocksForCourse = blocksForYear.filter((b) => courseIdsForBlock(b.id).includes(c.id));
+    if (!blocksForCourse.length) {
+      return `<div class="pure-lecture-plan-card">
+        <div class="pure-lecture-plan-header"><strong>${escapeHtml(c.course_code)}</strong> - ${escapeHtml(c.course_title)}</div>
+        <p class="pure-lecture-plan-meta">Not assigned to any block yet -- assign it in Blocks &rarr; Assign Courses first.</p>
       </div>`;
-    }).join('')}
-  `;
-
-  container.querySelectorAll('.spare-allocation-row[data-course-id]').forEach((row) => {
-    const typeSelect = row.querySelector('.spare-alloc-type');
-    const blockSelect = row.querySelector('.spare-alloc-block');
-    typeSelect.addEventListener('change', () => {
-      const show = typeSelect.value === 'join_block';
-      blockSelect.disabled = !show;
-      blockSelect.style.visibility = show ? 'visible' : 'hidden';
-    });
-  });
+    }
+    const plan = computePureLectureBatchPlan(c, blocksForCourse);
+    const blockChips = [
+      ...plan.requiredBlocks.map((b) => `<span class="badge active" title="Gets its own Lecture section">${escapeHtml(b.block_name)}</span>`),
+      ...plan.spareBlocks.map((s) => `<span class="badge inactive" title="Auto-joins ${escapeHtml(s.joinsBlock.block_name)}">${escapeHtml(s.block.block_name)} &rarr; ${escapeHtml(s.joinsBlock.block_name)}</span>`),
+    ].join(' ');
+    return `<div class="pure-lecture-plan-card">
+      <div class="pure-lecture-plan-header"><strong>${escapeHtml(c.course_code)}</strong> - ${escapeHtml(c.course_title)}</div>
+      <p class="pure-lecture-plan-meta">${blocksForCourse.length} block(s) &times; 30 = ${plan.totalStudents} students &divide; ${plan.capacity}/section = ${plan.requiredBatches} section(s) needed${plan.spareBlocks.length ? ` &mdash; ${plan.spareBlocks.length} block(s) auto-join instead of getting their own room/instructor` : ' &mdash; every block needs its own section, no SPARE'}</p>
+      <div class="pure-lecture-plan-blocks">${blockChips}</div>
+    </div>`;
+  }).join('');
 }
 $('spareYearLevel').addEventListener('change', renderSpareContent);
-
-async function createSpareGroup(yearLevel) {
-  try {
-    await request('spares.php?action=ensure', { method: 'POST', body: JSON.stringify({ year_level: yearLevel }) });
-    showToast('SPARE group created', 'success');
-    await loadAll();
-    $('spareYearLevel').value = String(yearLevel);
-    renderSpareContent();
-  } catch (err) {
-    showToast(err.message, 'error');
-  }
-}
-window.createSpareGroup = createSpareGroup;
-
-function onSpareAllocationTypeChange() {
-  // Visual toggle only -- handled by the per-row listener wired in
-  // renderSpareContent(); this named handler exists for the inline
-  // onchange="" attribute and intentionally does nothing further here.
-}
-window.onSpareAllocationTypeChange = onSpareAllocationTypeChange;
-
-async function saveSpareAllocation(spareId, courseId) {
-  const row = document.querySelector(`.spare-allocation-row[data-course-id="${courseId}"]`);
-  const type = row.querySelector('.spare-alloc-type').value;
-  const targetBlockId = row.querySelector('.spare-alloc-block').value;
-
-  if (!type) {
-    return clearSpareAllocation(spareId, courseId);
-  }
-  if (type === 'join_block' && !targetBlockId) {
-    showToast('Select a target block for "Join Block".', 'warning');
-    return;
-  }
-  try {
-    await request('spares.php?action=allocate', {
-      method: 'POST',
-      body: JSON.stringify({ spare_id: spareId, course_id: courseId, allocation_type: type, target_block_id: type === 'join_block' ? targetBlockId : null }),
-    });
-    showToast('SPARE allocation saved successfully', 'success');
-    await loadAll();
-    renderSpareContent();
-  } catch (err) {
-    showToast(err.message, 'error');
-  }
-}
-window.saveSpareAllocation = saveSpareAllocation;
-
-async function clearSpareAllocation(spareId, courseId) {
-  try {
-    await request(`spares.php?spare_id=${spareId}&course_id=${courseId}`, { method: 'DELETE' });
-    showToast('SPARE allocation removed', 'success');
-    await loadAll();
-    renderSpareContent();
-  } catch (err) {
-    showToast(err.message, 'error');
-  }
-}
-window.clearSpareAllocation = clearSpareAllocation;
 
 /* =====================================================
    SUBJECT OFFERING FORM -- COMPONENT BLOCKS (Lecture/Laboratory)

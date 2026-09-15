@@ -2769,29 +2769,23 @@ tbody tr:last-child td {
 }
 .checklist-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
 .checklist-item input[type="checkbox"] { width: 16px; height: 16px; }
-.spare-allocation-row {
-  display: grid;
-  grid-template-columns: 2fr 1.2fr 1.2fr auto;
-  gap: 10px;
-  align-items: center;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border, #333);
+/* SPARE page: one card per pure-lecture course showing the computed
+   Lecture batch plan -- which blocks get their own section (green chip)
+   and which auto-join another (grey chip, arrow shows the target). */
+.pure-lecture-plan-card {
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
 }
-.spare-allocation-row:last-child { border-bottom: none; }
-.spare-allocation-course { font-weight: 600; }
-
-/* Computed SPARE hint shown under each course on the SPARE Allocation page
-   -- purely informational, never blocks saving a different manual choice. */
-.spare-hint {
-  margin-top: 4px;
-  font-weight: 400;
-  font-size: 12px;
-  display: flex;
-  align-items: flex-start;
-  gap: 5px;
+.pure-lecture-plan-card:last-child { margin-bottom: 0; }
+.pure-lecture-plan-header { font-size: 14.5px; }
+.pure-lecture-plan-meta {
+  font-size: 12.5px;
+  color: var(--text-secondary, #9ca3af);
+  margin: 4px 0 10px;
 }
-.spare-hint-needed { color: #92400e; }
-.spare-hint-ok { color: #065f46; }
+.pure-lecture-plan-blocks { display: flex; flex-wrap: wrap; gap: 6px; }
 
 /* Course Offering overview (Plot Schedule -> pick Year Level -> see every Block at once) */
 .offering-block-section { margin-bottom: 22px; }
@@ -2812,6 +2806,14 @@ tbody tr:last-child td {
 .offering-row:hover { background: var(--bg-hover, rgba(122,31,43,0.08)); }
 .offering-row.is-editing { outline: 2px solid var(--accent, #7a1f2b); outline-offset: -2px; }
 .offering-row-unscheduled td { color: var(--text-secondary, #888); font-style: italic; }
+
+/* Auto-join row on the Course Offering table: this block doesn't need its
+   own Lecture section for this course (computePureLectureBatchPlan), so
+   the row is informational only -- no click/edit, distinct muted styling
+   so it doesn't look like a plottable row. */
+.offering-row-autojoin { cursor: default; }
+.offering-row-autojoin:hover { background: transparent; }
+.offering-row-autojoin td { color: var(--text-secondary, #6b7280); font-style: italic; }
 
 /* Set/Day/Time/Room cells on an already-scheduled row are individually
    clickable (Quick Edit popover for just that field) -- underline on hover
