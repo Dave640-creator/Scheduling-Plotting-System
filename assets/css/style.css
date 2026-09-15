@@ -2769,23 +2769,6 @@ tbody tr:last-child td {
 }
 .checklist-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
 .checklist-item input[type="checkbox"] { width: 16px; height: 16px; }
-/* SPARE page: one card per pure-lecture course showing the computed
-   Lecture batch plan -- which blocks get their own section (green chip)
-   and which auto-join another (grey chip, arrow shows the target). */
-.pure-lecture-plan-card {
-  border: 1px solid var(--border, #333);
-  border-radius: 8px;
-  padding: 14px 16px;
-  margin-bottom: 12px;
-}
-.pure-lecture-plan-card:last-child { margin-bottom: 0; }
-.pure-lecture-plan-header { font-size: 14.5px; }
-.pure-lecture-plan-meta {
-  font-size: 12.5px;
-  color: var(--text-secondary, #9ca3af);
-  margin: 4px 0 10px;
-}
-.pure-lecture-plan-blocks { display: flex; flex-wrap: wrap; gap: 6px; }
 
 /* Course Offering overview (Plot Schedule -> pick Year Level -> see every Block at once) */
 .offering-block-section { margin-bottom: 22px; }

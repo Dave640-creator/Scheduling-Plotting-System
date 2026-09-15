@@ -265,19 +265,20 @@ function openEntityModal(entity) {
   const cfg = formConfig[entity];
   $(cfg.modalId).classList.remove('hidden');
   document.body.style.overflow = 'hidden';
+  if (entity === 'courses') syncCourseCapacityFromLabUnits();
 }
 window.openEntityModal = openEntityModal;
 
-/** Course Capacity auto-fill: as soon as Lab Units is entered, default the
-    Capacity field to the standard 30 (course has a Laboratory component) or
-    45 (pure-lecture course) -- only while Capacity is still blank, so it
-    never overwrites a value the user (or an existing course being edited)
-    already has. */
-$('labUnits').addEventListener('input', () => {
-  if ($('courseMaxStudents').value.trim() !== '') return;
+/** Course Capacity is fully automatic now, driven by Lab Units: 30 for a
+    course with a Laboratory component, 45 for pure lecture (Lab Units =
+    0). No manual override -- always recomputed live as Lab Units changes. */
+function syncCourseCapacityFromLabUnits() {
   const hasLab = parseFloat($('labUnits').value || '0') > 0;
-  $('courseMaxStudents').value = hasLab ? '30' : '45';
-});
+  const value = hasLab ? 30 : 45;
+  $('courseMaxStudents').value = String(value);
+  $('courseMaxStudentsDisplay').value = `${value} (${hasLab ? 'has Lab' : 'pure lecture'})`;
+}
+$('labUnits').addEventListener('input', syncCourseCapacityFromLabUnits);
 
 function closeEntityModal(entity) {
   const cfg = formConfig[entity];
@@ -1123,7 +1124,6 @@ async function loadAll() {
   renderFilterOptions();
   renderTimetableSelectors();
   renderTimetable();
-  renderSpareYearLevelOptions();
   renderOfferingOverview();
 }
 
@@ -1628,72 +1628,6 @@ async function saveAssignBlockCourses() {
   }
 }
 window.saveAssignBlockCourses = saveAssignBlockCourses;
-
-/* =====================================================
-   SPARE / PURE-LECTURE AUTO-ALLOCATION (read-only, fully computed)
-   No manual picking anymore -- see computePureLectureBatchPlan() for the
-   calculation. This page just displays it per course for a chosen year
-   level, refreshed from however many Blocks and courses actually exist.
-   ===================================================== */
-
-function renderSpareYearLevelOptions() {
-  // Just keeps the dropdown itself stable; content refresh happens on
-  // 'change' and after loadAll() via renderSpareContent() below.
-  renderSpareContent();
-}
-
-/**
- * SPARE page (read-only now): shows, per pure-lecture course in the
- * selected year level, the computed Lecture batch plan from
- * computePureLectureBatchPlan() -- which Blocks get their own section and
- * which ones automatically join another, with the exact calculation shown.
- * Nothing here is manually picked or saved; it's recomputed fresh from
- * however many Blocks and courses actually exist right now. LEC+LAB
- * courses aren't listed -- they always run one section per Block,
- * unaffected by any of this.
- */
-function renderSpareContent() {
-  const container = $('spareContent');
-  const yearLevel = $('spareYearLevel').value;
-  if (!yearLevel) {
-    container.innerHTML = '';
-    return;
-  }
-
-  const blocksForYear = state.blocks.filter((b) => Number(b.year_level) === Number(yearLevel)).sort((a, b) => a.block_no - b.block_no);
-  const pureLectureCourses = state.courses.filter((c) => Number(c.year_level) === Number(yearLevel) && parseFloat(c.lab_units || 0) === 0)
-    .sort((a, b) => String(a.course_code).localeCompare(String(b.course_code)));
-
-  if (!blocksForYear.length) {
-    container.innerHTML = `<div class="table-empty-state"><i class="fas fa-layer-group"></i><p>No blocks exist yet for ${escapeHtml(YEAR_LEVEL_LABELS[yearLevel] || 'Year ' + yearLevel)}.</p></div>`;
-    return;
-  }
-  if (!pureLectureCourses.length) {
-    container.innerHTML = `<div class="table-empty-state"><i class="fas fa-book"></i><p>No pure-lecture courses (no Lab units) exist yet for this year level -- SPARE batching only applies to those. LEC+LAB courses always get one section per block.</p></div>`;
-    return;
-  }
-
-  container.innerHTML = pureLectureCourses.map((c) => {
-    const blocksForCourse = blocksForYear.filter((b) => courseIdsForBlock(b.id).includes(c.id));
-    if (!blocksForCourse.length) {
-      return `<div class="pure-lecture-plan-card">
-        <div class="pure-lecture-plan-header"><strong>${escapeHtml(c.course_code)}</strong> - ${escapeHtml(c.course_title)}</div>
-        <p class="pure-lecture-plan-meta">Not assigned to any block yet -- assign it in Blocks &rarr; Assign Courses first.</p>
-      </div>`;
-    }
-    const plan = computePureLectureBatchPlan(c, blocksForCourse);
-    const blockChips = [
-      ...plan.requiredBlocks.map((b) => `<span class="badge active" title="Gets its own Lecture section">${escapeHtml(b.block_name)}</span>`),
-      ...plan.spareBlocks.map((s) => `<span class="badge inactive" title="Auto-joins ${escapeHtml(s.joinsBlock.block_name)}">${escapeHtml(s.block.block_name)} &rarr; ${escapeHtml(s.joinsBlock.block_name)}</span>`),
-    ].join(' ');
-    return `<div class="pure-lecture-plan-card">
-      <div class="pure-lecture-plan-header"><strong>${escapeHtml(c.course_code)}</strong> - ${escapeHtml(c.course_title)}</div>
-      <p class="pure-lecture-plan-meta">${blocksForCourse.length} block(s) &times; 30 = ${plan.totalStudents} students &divide; ${plan.capacity}/section = ${plan.requiredBatches} section(s) needed${plan.spareBlocks.length ? ` &mdash; ${plan.spareBlocks.length} block(s) auto-join instead of getting their own room/instructor` : ' &mdash; every block needs its own section, no SPARE'}</p>
-      <div class="pure-lecture-plan-blocks">${blockChips}</div>
-    </div>`;
-  }).join('');
-}
-$('spareYearLevel').addEventListener('change', renderSpareContent);
 
 /* =====================================================
    SUBJECT OFFERING FORM -- COMPONENT BLOCKS (Lecture/Laboratory)
@@ -2772,7 +2706,7 @@ function editCourse(id) {
   $('lecUnits').value = c.lec_units;
   $('labUnits').value = c.lab_units;
   $('category').value = c.category;
-  $('courseMaxStudents').value = c.max_students ?? '';
+  syncCourseCapacityFromLabUnits();
   startEdit('courses', id);
 }
 window.editCourse = editCourse;
