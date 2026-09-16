@@ -411,6 +411,7 @@ function fillSelect(id, data, labelFn, value = 'id', first = 'Select') {
 }
 
 const YEAR_LEVEL_LABELS = { 1: '1st Year', 2: '2nd Year', 3: '3rd Year', 4: '4th Year' };
+const SEMESTER_LABELS = { first_semester: 'First Semester', second_semester: 'Second Semester', summer: 'Summer' };
 
 /**
  * Mirrors ALLOWED_SET_TYPES_BY_YEAR_LEVEL in api/schedules.php: 1st/4th year
@@ -652,7 +653,13 @@ const scheduleCourseCombobox = createCourseCombobox({
   getAllowedCourseIds: () => {
     const target = getSelectedTarget();
     if (!target) return null;
-    return target.type === 'block' ? courseIdsForBlock(target.id) : courseIdsForSeparateSpare(target.id);
+    const semester = $('scheduleSemester').value;
+    const idsForTarget = target.type === 'block' ? courseIdsForBlock(target.id) : courseIdsForSeparateSpare(target.id);
+    if (!semester) return idsForTarget;
+    return idsForTarget.filter((id) => {
+      const course = state.courses.find((c) => Number(c.id) === Number(id));
+      return course && course.semester_type === semester;
+    });
   },
 });
 const assignCourseCombobox = createCourseCombobox({
@@ -793,15 +800,17 @@ function renderOfferingOverview() {
   const container = $('offeringOverview');
   const yearLevel = $('scheduleYearLevel').value;
   const schoolYear = $('scheduleSchoolYear').value;
+  const semester = $('scheduleSemester').value;
 
-  if (!yearLevel || !schoolYear) {
-    container.innerHTML = `<div class="offering-empty"><i class="fas fa-arrow-up"></i> Select an Academic Year and Year Level above to see this year level's full course offering.</div>`;
+  if (!yearLevel || !schoolYear || !semester) {
+    container.innerHTML = `<div class="offering-empty"><i class="fas fa-arrow-up"></i> Select an Academic Year, Year Level, and Semester above to see that semester's course offering.</div>`;
     return;
   }
 
   const blocksForYear = state.blocks.filter((b) => Number(b.year_level) === Number(yearLevel)).sort((a, b) => a.block_no - b.block_no);
   const programCode = blocksForYear[0]?.program_code || 'BSCS';
   const yearLabel = YEAR_LEVEL_LABELS[yearLevel] || `Year ${yearLevel}`;
+  const semesterLabel = SEMESTER_LABELS[semester] || semester;
 
   if (!blocksForYear.length) {
     container.innerHTML = `<div class="offering-empty"><i class="fas fa-layer-group"></i> No blocks exist yet for ${escapeHtml(yearLabel)}. Create some in Blocks first.</div>`;
@@ -812,17 +821,19 @@ function renderOfferingOverview() {
   const codePrefix = { 1: 'A', 2: 'B', 3: 'C', 4: 'D' }[yearLevel] || 'X';
   const cols = '<tr><th>Code</th><th>Set</th><th>Course Code</th><th>Course Title</th><th>Type</th><th>Day</th><th>Time</th><th>Room</th><th></th></tr>';
 
-  // Work out, per pure-lecture course, which of THIS year level's actual
-  // Blocks need their own dedicated Lecture section vs which ones
-  // automatically join another Block instead -- computed fresh every
-  // render from however many Blocks actually exist right now, never
+  // Work out, per pure-lecture course IN THIS SEMESTER, which of THIS year
+  // level's actual Blocks need their own dedicated Lecture section vs
+  // which ones automatically join another Block instead -- computed fresh
+  // every render from however many Blocks actually exist right now, never
   // hard-coded to a fixed count or a fixed "last block is spare" rule.
+  // First Semester, Second Semester, and Summer are kept fully separate --
+  // a course only ever belongs to one of them, so this never mixes them.
   const pureLectureBatchPlans = new Map();
   blocksForYear.forEach((block) => {
     courseIdsForBlock(block.id).forEach((courseId) => {
       if (pureLectureBatchPlans.has(courseId)) return;
       const course = state.courses.find((c) => Number(c.id) === courseId);
-      if (!course) return;
+      if (!course || course.semester_type !== semester) return;
       const blocksForCourse = blocksForYear.filter((b) => courseIdsForBlock(b.id).includes(courseId));
       const plan = computePureLectureBatchPlan(course, blocksForCourse);
       if (plan) pureLectureBatchPlans.set(courseId, plan);
@@ -833,10 +844,10 @@ function renderOfferingOverview() {
 
   blocksForYear.forEach((block) => {
     const courseIds = courseIdsForBlock(block.id);
-    const courses = courseIds.map((id) => state.courses.find((c) => Number(c.id) === id)).filter(Boolean)
+    const courses = courseIds.map((id) => state.courses.find((c) => Number(c.id) === id)).filter((c) => c && c.semester_type === semester)
       .sort((a, b) => Number(a.id) - Number(b.id));
     const rowsHtml = courses.flatMap((course) => {
-      const plan = pureLectureBatchPlans.get(course.id);
+      const plan = pureLectureBatchPlans.get(Number(course.id));
       const spareEntry = plan && plan.spareBlocks.find((s) => Number(s.block.id) === Number(block.id));
       if (spareEntry) {
         // This Block doesn't need its own Lecture section for this
@@ -852,8 +863,8 @@ function renderOfferingOverview() {
       : renderOfferingRow(`${codePrefix}${codeCounter++}`, row)).join('');
     html += `
       <div class="offering-block-section">
-        <div class="offering-block-title">${escapeHtml(programCode)}<br>${escapeHtml(yearLabel)} Students (${escapeHtml(block.block_name.toUpperCase())})</div>
-        <table class="offering-table"><thead>${cols}</thead><tbody>${rowsHtml || `<tr><td colspan="9" class="offering-empty">No courses assigned to this block yet.</td></tr>`}</tbody></table>
+        <div class="offering-block-title">${escapeHtml(programCode)}<br>${escapeHtml(yearLabel)} Students (${escapeHtml(block.block_name.toUpperCase())}) &mdash; ${escapeHtml(semesterLabel)}</div>
+        <table class="offering-table"><thead>${cols}</thead><tbody>${rowsHtml || `<tr><td colspan="9" class="offering-empty">No ${escapeHtml(semesterLabel)} courses assigned to this block yet.</td></tr>`}</tbody></table>
       </div>`;
   });
 
@@ -1101,6 +1112,12 @@ window.submitQuickEdit = submitQuickEdit;
 /** Year Level changed on the Plot Schedule form: rebuild the Block/SPARE Target list, then reset the whole downstream chain (Course, Faculty, component blocks), per the "reset dependent selections" requirement. */
 function onYearLevelChange() {
   renderTargetOptions();
+  onTargetChange();
+  renderOfferingOverview();
+}
+
+/** Semester changed: which courses are valid for the current Block depends on this, so reset Course same as a Target/Block change would, then re-render the (now semester-filtered) overview. */
+function onSemesterChange() {
   onTargetChange();
   renderOfferingOverview();
 }
@@ -3460,6 +3477,7 @@ function onOfferingContextChange() {
 }
 
 $('scheduleYearLevel').addEventListener('change', onYearLevelChange);
+$('scheduleSemester').addEventListener('change', onSemesterChange);
 $('scheduleTarget').addEventListener('change', onTargetChange);
 $('scheduleCourse').addEventListener('change', onOfferingContextChange);
 $('scheduleSchoolYear').addEventListener('change', onOfferingContextChange);

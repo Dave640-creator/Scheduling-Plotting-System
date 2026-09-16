@@ -359,6 +359,19 @@
               </select>
             </div>
 
+            <div class="form-group">
+              <label for="scheduleSemester">
+                <i class="fas fa-layer-group"></i> Semester
+                <span class="required">*</span>
+              </label>
+              <select id="scheduleSemester" required>
+                <option value="">Select semester</option>
+                <option value="first_semester">First Semester</option>
+                <option value="second_semester">Second Semester</option>
+                <option value="summer">Summer</option>
+              </select>
+            </div>
+
             <div class="form-group" style="display:none;">
               <label for="scheduleTarget">
                 <i class="fas fa-layer-group"></i> Block
@@ -394,7 +407,7 @@
 
           <div class="form-section" id="offeringOverviewSection">
             <div class="form-section-title"><i class="fas fa-table-list"></i> Course Offering</div>
-            <p class="field-hint full-width">Pick a Year Level above to see every Block's courses at once, like the printed Course Offering sheet. Click an unscheduled row to plot it, or click a Set/Day/Time/Room cell on a scheduled row to quick-edit just that field.</p>
+            <p class="field-hint full-width">Pick an Academic Year, Year Level, and Semester above to see that semester's Block courses only -- First Semester, Second Semester, and Summer are kept separate. Click an unscheduled row to plot it, or click a Set/Day/Time/Room cell on a scheduled row to quick-edit just that field.</p>
             <div id="offeringOverview" class="full-width"></div>
           </div>
 

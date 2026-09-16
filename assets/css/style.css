@@ -1870,7 +1870,11 @@ table {
 }
 
 thead {
-  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  /* Softer than the site's normal --primary maroon -- the full-intensity
+     gradient was too harsh on the eyes specifically for a large filled
+     bar the user stares at while scanning a table. Everything else
+     (buttons, nav, block title bars) keeps the original full color. */
+  background: linear-gradient(135deg, #8c3b3b 0%, #5c2727 100%);
 }
 
 /* Keep column headers visible while scrolling a long table (Schedule List,
