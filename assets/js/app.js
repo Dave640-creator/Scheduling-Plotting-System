@@ -1884,6 +1884,43 @@ function printTimetable() {
 }
 window.printTimetable = printTimetable;
 
+/**
+ * Prints just the Course Offering table from the Plot Schedule view.
+ * The whole plotting view lives inside <form id="scheduleForm">, and the
+ * base print stylesheet hides every form -- so instead of restructuring
+ * the page, this flips a `printing-offering` class on <body> that a
+ * dedicated print block in style.css uses to un-hide the form and show
+ * only #offeringOverviewSection inside it. The class is removed again on
+ * afterprint so the screen view is untouched.
+ */
+function printOffering() {
+  const schoolYear = $('scheduleSchoolYear').value;
+  const yearLevel = $('scheduleYearLevel').value;
+  const semester = $('scheduleSemester').value;
+  if (!schoolYear || !yearLevel || !semester) {
+    showToast('Select an Academic Year, Year Level, and Semester first.', 'warning');
+    return;
+  }
+  const blocksForYear = state.blocks.filter((b) => Number(b.year_level) === Number(yearLevel));
+  const programCode = blocksForYear[0]?.program_code || 'BSCS';
+  const subtitle = [
+    programCode,
+    YEAR_LEVEL_LABELS[yearLevel] || `Year ${yearLevel}`,
+    SEMESTER_LABELS[semester] || semester,
+    `AY ${schoolYear}`,
+  ].join(' \u2014 ');
+  fillPrintLetterhead('Course Offering', subtitle);
+
+  document.body.classList.add('printing-offering');
+  const restore = () => {
+    document.body.classList.remove('printing-offering');
+    window.removeEventListener('afterprint', restore);
+  };
+  window.addEventListener('afterprint', restore);
+  window.print();
+}
+window.printOffering = printOffering;
+
 document.querySelectorAll('.timetable-tab').forEach((btn) => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.timetable-tab').forEach((b) => b.classList.remove('active'));
