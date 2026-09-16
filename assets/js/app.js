@@ -755,19 +755,6 @@ function offeringRowsForCourse(course, blockRow, spareRow, schoolYear) {
   return rows;
 }
 
-/** A read-only row for a course a Block doesn't need its own Lecture section for (per computePureLectureBatchPlan) -- no click handler, nothing to plot, since those students automatically sit in with another Block's section. */
-function renderAutoJoinRow(codeLabel, course, joinsBlock) {
-  return `<tr class="offering-row offering-row-autojoin">
-    <td class="offering-code-cell">${escapeHtml(codeLabel)}</td>
-    <td>\u2013</td>
-    <td>${escapeHtml(course.course_code)}</td>
-    <td>${escapeHtml(course.course_title)}</td>
-    <td>LEC</td>
-    <td colspan="3"><i class="fas fa-arrow-right-to-bracket"></i> Auto-joins ${escapeHtml(joinsBlock.block_name)}'s Lecture section &mdash; no separate room/instructor needed</td>
-    <td></td>
-  </tr>`;
-}
-
 function renderOfferingRow(codeLabel, row) {
   const { course, target, component, existing } = row;
   const targetValue = `${target.type}:${target.id}`;
@@ -850,17 +837,16 @@ function renderOfferingOverview() {
       const plan = pureLectureBatchPlans.get(Number(course.id));
       const spareEntry = plan && plan.spareBlocks.find((s) => Number(s.block.id) === Number(block.id));
       if (spareEntry) {
-        // This Block doesn't need its own Lecture section for this
-        // course -- show the auto-join note instead of a plottable row.
-        // Any Laboratory component (if this ever had one) is unaffected
-        // since computePureLectureBatchPlan only returns a plan for
-        // Lab-less courses in the first place.
-        return [{ __autoJoin: true, course, joinsBlock: spareEntry.joinsBlock }];
+        // This Block doesn't need its own Lecture section for this course
+        // -- its students automatically sit in on another Block's section,
+        // so there is nothing to plot and the row is left out of the table
+        // entirely (it also consumes no Code). Any Laboratory component (if
+        // this ever had one) is unaffected since computePureLectureBatchPlan
+        // only returns a plan for Lab-less courses in the first place.
+        return [];
       }
       return offeringRowsForCourse(course, block, null, schoolYear);
-    }).map((row) => row.__autoJoin
-      ? renderAutoJoinRow(`${codePrefix}${codeCounter++}`, row.course, row.joinsBlock)
-      : renderOfferingRow(`${codePrefix}${codeCounter++}`, row)).join('');
+    }).map((row) => renderOfferingRow(`${codePrefix}${codeCounter++}`, row)).join('');
     html += `
       <div class="offering-block-section">
         <div class="offering-block-title">${escapeHtml(programCode)}<br>${escapeHtml(yearLabel)} Students (${escapeHtml(block.block_name.toUpperCase())}) &mdash; ${escapeHtml(semesterLabel)}</div>
@@ -871,10 +857,6 @@ function renderOfferingOverview() {
   container.innerHTML = html;
 
   container.querySelectorAll('.offering-row').forEach((tr) => {
-    // Auto-join rows are informational only -- nothing to plot or edit,
-    // since that Block's students for this course sit in on another
-    // Block's Lecture section automatically.
-    if (tr.classList.contains('offering-row-autojoin')) return;
     // Unscheduled rows (no schedule-id yet) always open the full Plot
     // Schedule popover -- a brand-new schedule needs every field at once,
     // so there's no single cell that makes sense to edit in isolation.
