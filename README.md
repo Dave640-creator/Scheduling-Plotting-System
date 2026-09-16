@@ -1,200 +1,857 @@
-# TCGC ICS Plotting System
+TCGC ICS Plotting System
 
-Technology used:
-- HTML
-- CSS
-- JavaScript
-- PHP REST API backend
-- MySQL database
-- JSON API responses
+A local web-based scheduling and subject-offering management system for the Institute of Computer Studies (ICS) of Tangub City Global College (TCGC).
 
-Theme:
-- Maroon theme
-- TCGC and ICS logos included in `assets/img`
+The system is designed for an Institute Head/coordinator to manage courses, blocks, faculty, rooms, faculty-course assignments, SPARE allocations, and weekly class schedules while automatically checking important scheduling constraints.
 
-## Main User
-Institute Head only.
+1. Technology Stack
 
-## Main Features
-- Course management (with an optional, informational-only course capacity)
-- Faculty management
-- Block management: Year Level + Number of Blocks -> auto-generates "Block 1, Block 2, ..." (blocks carry no capacity field)
-- Assign Courses: pick which Courses belong to which Block (many-to-many)
-- SPARE Allocation: a special group, separate from regular Blocks, handled per course (join an existing Block's class, or get its own separate SPARE schedule)
-- Room management with lecture/laboratory type (no capacity field)
-- Faculty-course assignment
-- Manual schedule plotting, against either a Block or SPARE
-- Face-to-Face / Hybrid rotation mode
-- SET 0, SET 1, SET 2 support
-- Printable schedule list
+Frontend: HTML5, CSS3, JavaScript (ES6+)
 
-## Validations Applied
-- Instructor conflict checking
-- Block/SPARE conflict checking
-- Room conflict checking (SET 0 always; SET 1/SET 2 checked against each other too, except the two may share the same room/time since their F2F weeks alternate)
-- SET 0, SET 1, and SET 2 all require a room -- none of them is permanently online; SET 1/SET 2 are hybrid with an alternating F2F week
-- Laboratory component must use laboratory room
-- Lecture component must use lecture room
-- A course must actually be assigned to the target Block (or configured for a separate SPARE schedule) before it can be plotted
-- Faculty can only teach assigned/allowed courses
-- Faculty has maximum of 4 preparations only
-- Weekly hours follow: 1 unit = 1 hour per week, for BOTH Lecture and Laboratory units (this app does NOT use the common "1 laboratory unit = 3 hours" rule)
+Backend: PHP REST-style API
 
-## Setup in XAMPP
-1. Copy the `ics_plotting_system` folder to:
-   `C:\xampp\htdocs\`
+Database: MySQL / MariaDB
 
-2. Open phpMyAdmin.
+Database Access: PHP PDO
 
-3. Import:
-   `database/ics_plotting.sql`
+Authentication: PHP sessions with password hashing
 
-4. Check database connection in:
-   `api/config.php`
+API Format: JSON
 
-   As currently checked into this project:
-   ```php
-   DB_HOST = 127.0.0.1
-   DB_PORT = 3307
-   DB_NAME = ics_plotting_system
-   DB_USER = root
-   DB_PASS = empty
-   ```
+Icons: Font Awesome CDN
 
-   `DB_PORT` is set to `3307` (not MySQL's standard `3306`) because this project's XAMPP install had another MySQL/MariaDB instance already occupying 3306. **If your own XAMPP MySQL runs on the standard port**, change `DB_PORT` in `api/config.php` back to `3306`. Check your actual port in XAMPP Control Panel > MySQL > Config > `my.ini` (look for the `port =` line).
+Server Environment: XAMPP/Apache + MySQL
 
-   Leave `DB_HOST` as `127.0.0.1` -- don't change it to `localhost`. This isn't just style: PHP's MySQL driver treats `localhost` as "connect via the local Unix socket file," which completely ignores whatever you put in `DB_PORT`. Only `127.0.0.1` (or the actual IP) forces a real TCP connection on the port you specify. This one tripped up testing before it was caught.
+No Node.js, npm, Composer, or build step is required.
 
-5. Open in browser:
-   `http://localhost/ics_plotting_system/`
+2. Main System Functions
 
-## Default Institute Head Login Record
-A login screen now gates the whole app. Default account:
-- username: `institute_head`
-- password: `ics12345`
+Dashboard
 
-Log in with these on first run. (If you already had a copy of this project installed before 2026-07-14, run `database/migration_fixes_2026-07-14.sql` once — it corrects a broken password hash from the old seed data and adds the `delivery_mode` column schedules now needs.)
+The dashboard provides an overview of the current scheduling data, including:
 
-## API Files
-All API files return JSON responses. `courses.php`, `blocks.php`, `faculty.php`, `rooms.php`, and `schedules.php` support GET/POST/PUT/DELETE (PUT edits an existing record by `id`). `faculty_courses.php` supports GET/POST/DELETE only. `block_courses.php` and `spares.php` support GET/POST/DELETE with their own request shapes (see the comment block at the top of each file). All of these require an active login session except `auth.php` itself:
-- `api/auth.php` — GET checks session, POST logs in, DELETE logs out
-- `api/dashboard.php`
-- `api/courses.php`
-- `api/blocks.php` — Add Block: Year Level + Number of Blocks -> auto-creates "Block N"
-- `api/block_courses.php` — Assign Courses to a Block (many-to-many)
-- `api/spares.php` — SPARE groups and per-course allocation (join_block / separate_schedule)
-- `api/rooms.php`
-- `api/faculty.php`
-- `api/faculty_courses.php`
-- `api/schedules.php` — plots against either `block_id` or `spare_id` (never both)
+Schedule statistics
 
-## Important Note
-This version is focused on the Institute of Computer Studies plotting process and is designed to replace manual Excel plotting with structured validation and conflict detection.
+Weekly schedule overview
 
+Schedule health/validation information
 
-Updated Features:
-- Full BSCS prospectus-based courses (1st-4th year + summer)
-- SET 0/1/2 classification
-- Faculty-course qualification filtering
-- Weekly hour validation
-- Laboratory room validation
-- Section, room, and instructor conflict detection
-- Login-gated access (session-based)
-- Edit/update support for courses, sections, faculty, rooms, and schedules (not just add/delete)
-- Schedule list filtering by school year, year level, semester, section, and faculty
-- School year tracking on every schedule (format YYYY-YYYY), so semesters/years don't mix together
-- Course year-level is validated against the section's year level when plotting (blocks e.g. a 4th year course for a 1st year section)
+Items that need attention
 
-## UI/UX Overhaul (2026-07-30)
-The interface was refined into a modern admin portal while keeping the maroon/gold/white branding and existing workflow intact:
-- Compact header, sidebar organized into "Operations" and "Management" groups
-- Add/Edit forms for Courses, Sections, Faculty, Rooms, and Faculty Course Assignments now open in modal dialogs instead of sitting above the table
-- Toast notifications (success/error) replace browser `alert()`-style messages
-- Custom confirmation dialog replaces the native browser confirm popup before deleting anything
-- Every management table now has search, sortable columns, pagination, and a proper empty state (different message when a search finds nothing vs. when the table is genuinely empty)
-- Dashboard adds a Recent Activity feed and Quick Actions panel alongside the existing stat cards and validations panel
-- The Print button now only appears on the Schedules view (removed from Courses/Sections/Faculty/Rooms/Assignments, where it didn't make sense)
-- Disabled fields (e.g. "select a course first") now show a greyed-out state with a tooltip explaining why
-- Escape key and clicking outside a modal both close it; focus-visible outlines added for keyboard navigation
-- Mobile: sidebar collapses behind a toggle button below 768px width
+Recent activity
 
-## Live Conflict Preview + SET-Aware Conflict Rule (2026-07-30)
-Plot Schedule now has:
-- A **Duration** dropdown (30 min to 3 hrs, or Custom) that auto-computes End Time -- no more manual math
-- A **live conflict preview** that checks Instructor/Room/Section conflicts as you fill out the form, before you hit Save (advisory only -- the backend still re-validates everything on Save, which remains the authoritative check)
-- **Suggested alternative times** shown automatically when a conflict is detected
+Quick actions
 
-The conflict rule itself was corrected to match how SET 0/1/2 actually work. **Important: this rule governs ROOM conflicts only.** Instructor and section conflicts are always checked independently, at the same day/time, regardless of which SETs are involved -- the SET 1/SET 2 alternation never excuses a faculty or a section being double-booked, only a room being shared.
-- **SET 0** is always face-to-face, so it room-conflicts with anything at the same room/time
-- **The same alternating set** (SET 1 + SET 1, or SET 2 + SET 2) always lands on the same week, so it room-conflicts
-- **SET 1 + SET 2** alternate on opposite weeks and are NOT physically simultaneous, so they do **not** room-conflict by default
-- **Exception:** if either side is a lecture component, or a non-major (minor) course, it still room-conflicts even when SET 1 + SET 2 -- lab components of major courses are the ones that genuinely rotate week-to-week
+Plot Schedule
 
-This rule lives in `is_minor_or_lecture()` and `sets_conflict()` in `api/schedules.php` (authoritative) and is mirrored in `assets/js/app.js` (`isMinorOrLecture()` / `setsConflict()`) for the live preview only. Both gate the room-conflict check only -- instructor/section conflicts run unconditionally in the same loop.
+The scheduler follows this general flow:
 
-## Term-Scoped Conflicts + Availability Toggle (2026-08-01)
-Two correctness fixes and one new feature:
+Academic Year → Year Level → Block/SPARE → Course Offering → Component → Schedule Details
 
-- **Conflicts are now scoped to the same term.** Instructor/section/room conflict checks, and the faculty "max preparations" count, previously ran against *every* schedule ever plotted, with no regard for school year or semester. That meant a class from SY 2025-2026 could falsely block the same room/time in SY 2026-2027, and a faculty's preparation count never reset between semesters. Both the backend (`api/schedules.php`) and the live preview (`assets/js/app.js`) now scope these checks to the same `school_year` + the course's `semester_type` as the schedule being plotted. Run `database/migration_fixes_2026-08-01.sql` once if upgrading (adds `is_active` -- see below).
-- **Faculty and Rooms now have an Active/Unavailable toggle** (`is_active`), editable from their Add/Edit forms with a Status column in each table. Use this instead of deleting when a faculty resigns/goes on leave or a room is under repair -- deleting a faculty or course still cascades and permanently removes every linked schedule, which is rarely what you want. Inactive faculty/rooms are hidden from the Plot Schedule dropdowns (except the one already on the record you're currently editing) and are blocked server-side from being assigned to new schedules.
-- **Delete confirmation now shows impact.** Deleting a faculty, course, or section that has linked schedules now tells you how many schedules will also be permanently deleted before you confirm. Deleting a room that's in use tells you how many schedules will have their room unassigned (rooms don't cascade-delete schedules, they just get set to "no room").
-- **Bug fix (found during verification):** marking a faculty or room inactive was blocking edits to their *existing* schedules too, even when the faculty/room assignment itself wasn't changing (e.g. just adjusting the time). `api/schedules.php` now only blocks the inactive faculty/room when it represents a *new* assignment -- editing a schedule while keeping its current (now-inactive) faculty/room still works; reassigning to a *different* inactive faculty/room is still correctly blocked.
+A schedule can contain:
 
-## Plotting UX Improvements (2026-08-06)
-- **Faculty Course Assignments can now be edited**, not just added/deleted.
-- **Start/End time are now dropdowns** (30-minute steps, 6:00 AM - 9:00 PM) instead of the native time-wheel picker, which is faster to use than scrolling. End Time stays auto-computed from Duration as before; switching Duration to "Custom" makes it a normal editable dropdown again.
-- **Day Pattern now supports custom day combinations.** The quick presets (MWF, TTH, MW, TF, Saturday) are still there for the common cases, but picking "Custom Days" reveals a Mon-Sun checkbox row so you can build any combination (e.g. Monday + Thursday + Saturday). Under the hood, `day_of_week` changed from a fixed list to a flexible column storing the actual day names (e.g. `"Monday,Wednesday,Friday"`), so there's no more mismatch between what's stored and what a "Custom" pattern actually means. Old un-migrated rows using the short codes (MWF/TTH/MW/TF) still work correctly against new rows -- see `database/migration_fixes_2026-08-06.sql` if you have an existing install.
-- **Course dropdowns are now grouped by year level** (1st Year / 2nd Year / 3rd Year / 4th Year) in the Plot Schedule and Faculty Course Assignment forms, instead of one long flat list.
+Lecture component
 
-## Feedback Loading States (2026-08-12)
-Checked the system against Don Norman's 5 design principles (Visibility, Feedback, Constraints, Affordance, Consistency). Found one real gap under Feedback: Save/Log In buttons gave no indication a request was in flight, so a slow connection could look like nothing happened. Fixed:
-- Every Save button (Courses, Sections, Faculty, Rooms, Assignments, Schedules) now shows a spinner + "Saving..." and disables itself the instant you submit, and re-enables with its normal label if the request fails.
-- The Log In button does the same ("Logging in...").
+Laboratory component
 
-## User-Journey Test Fixes (2026-08-12)
-Walked through the system as a first-time user end-to-end (login through logout) and fixed 3 real gaps found:
-- **Room is now marked as conditionally required.** SET 0 (always face-to-face) needs a room, but the field never said so until you got a validation error on Save. The asterisk and a short hint now appear/disappear live as you change the Set Type.
-- **Section's 30-student cap is now shown before you hit the limit**, not just as an error message after.
-- **Login screen now hints at the default account** (`institute_head`) for first-time setup, without printing the actual password on screen -- it points to this README instead, since showing a password on a login page is bad practice even for a local single-admin system.
+Faculty
 
-## Printable Timetables (2026-08-12)
-New "Timetables" view (sidebar, under Operations) generates a proper printable weekly schedule instead of just a flat list:
-- **By Section** -- pick a school year + section, see a Mon-Sun time grid of everything that section is taking, with faculty/room shown on each block.
-- **By Faculty** -- pick a school year + faculty, see their weekly teaching grid plus a load summary (Preparations, Total Units, Class Meetings).
-- Grid rows auto-scale to whatever time range the selected schedules actually span (not a fixed clock range), so nothing gets clipped.
-- Print button here produces a clean grid without the sidebar/buttons -- same as the Schedules list's print button.
-- Fixed a real print bug found while building this: `window.print()` previously rendered *every* view stacked on top of each other on the printed page, not just the one you were looking at.
+Room
 
-## Scheduling Logic Audit (2026-09-01)
-Two confirmed logic bugs found and fixed in `api/schedules.php` and `assets/js/app.js`:
-- **Instructor/section conflicts were incorrectly skipped for SET 1 + SET 2.** The SET 1/SET 2 "alternating weeks, no conflict" exception was being applied as a blanket gate before checking instructor, section, *and* room conflicts -- so a faculty (or section) double-booked between a SET 1 class and a SET 2 class at the same day/time went undetected. The exception is a physical-room-sharing rule only; instructor and section conflicts are now always checked at the same day/time regardless of SET, while the SET 1/SET 2 exception continues to apply to the room check only.
-- **Room was only required for SET 0.** SET 1 and SET 2 are hybrid, not permanently online -- both still have a face-to-face week where a room is needed. Room is now a required field for all three SET types, with messaging that matches: "Face-to-face -- Room required." (SET 0) and "Hybrid -- Room required during F2F week." (SET 1/SET 2).
+SET type
 
-The unit-to-hours rule (1 unit = 1 hour/week for both Lecture and Laboratory, no laboratory ×3 multiplier) was already correctly implemented in both files prior to this audit and required no change.
+Day pattern
 
-Also removed a stale, older duplicate copy of the entire app that had somehow ended up nested inside itself (`ics_plotting_system/ics_plotting_system/`, previously tracked in git) -- it predated several fixes (dashboard overview section, the corrected unit rule) and was not the version actually being served.
+Start/end time
 
-## Section -> Block/SPARE Migration (2026-09-12)
-The student-grouping model was replaced end-to-end, not just relabeled:
+School year
 
-- **Section is gone.** The `sections` table, `api/sections.php`, and every "Section" field/label in the UI are removed.
-- **Block replaces it as the grouping unit.** Blocks are created via **Add Block**: pick a Year Level and a Number of Blocks, and the system auto-generates "Block 1, Block 2, ..." -- there is no Section Number or manual naming, and continuing to "Add Block" later for the same Year Level picks up numbering where it left off rather than colliding or renumbering.
-- **Blocks have no capacity field**, by design. Room Capacity was also removed from Add Room entirely. The only remaining student-count-style figure in the system is an **optional Course Capacity** (`courses.max_students`) -- informational only, meant to help the coordinator judge when SPARE is needed, and never enforced as a plotting gate.
-- **Assign Courses (new):** a many-to-many mapping between Blocks and Courses. Plot Schedule now flows Year Level -> Block -> Courses (auto-populated from this mapping) -> plot, instead of picking a Course first.
-- **SPARE (new):** a special allocation group, one per Program + Year Level, kept entirely separate from regular Blocks (never "Block N", never auto-generated by Add Block). Each course under that year level is configured independently from the new **SPARE Allocation** screen:
-  - **Join Block** -- SPARE students for that course simply attend an existing Block's class; this is informational only and never gets a schedule of its own.
-  - **Separate Schedule** -- the course needs its own class time/room/instructor for the SPARE group; this is the only case that shows up as a plottable target (`SPARE`) in Plot Schedule's Block dropdown.
-- **Database:** `schedules` now has both `block_id` and `spare_id` (nullable, exactly one set per row, enforced by a CHECK constraint and a generated `target_ref` column used for the uniqueness/duplicate-component check). New tables: `blocks`, `block_courses`, `spares`, `spare_course_allocations`.
-- **CSV Import:** the Sections import was replaced with a Blocks import (`year_level`, `number_of_blocks` columns) using the same auto-naming rule as Add Block.
-- This is a breaking schema change with no data migration path (by design, per the request) -- re-import `database/ics_plotting.sql` on a fresh database rather than trying to upgrade an existing install in place.
+Notes
 
-## Known Remaining Gaps (not yet implemented)
-- Editing a course's units/year-level/semester after schedules already exist for it is not retroactively re-validated against the DB rules -- the app only shows a toast telling you how many schedules to go re-check manually in the Schedules tab
-- No bulk CSV import for courses, no "clone previous semester" shortcut
-- No faculty-side login (view-only access to their own load)
-- No export to Excel/CSV
-- No total-teaching-hours/overload check across a faculty's full schedule (only the "max preparations" count is enforced, and it's now per-term rather than lifetime)
-- No per-day/per-time instructor availability/blackout preferences (the Active/Unavailable toggle is all-or-nothing, not day-specific)
-- Timetable grid doesn't yet handle two SET_1/SET_2-alternating schedules that legitimately overlap the same time slot (they'll visually stack in the same cell rather than showing side-by-side)
-- Out of scope by design: individual student-level scheduling (transferees, irregular/deloaded students). This system plots block schedules per block; matching individual students to slots belongs in a separate enrollment/registration system.
-- SPARE is scoped one group per Program + Year Level (not per-block or per-course), matching how it was described -- if a school later needs multiple independent SPARE pools per year level, the schema would need to grow further.
+Already-plotted course components can be edited instead of being duplicated.
+
+Schedules
+
+The Schedules view provides:
+
+Complete schedule list
+
+Filtering by school year
+
+Filtering by year level
+
+Filtering by semester
+
+Filtering by Block/SPARE target
+
+Filtering by faculty
+
+Search/sorting/pagination
+
+Schedule conflict indicators
+
+Quick editing of schedule fields
+
+Printing
+
+Timetables
+
+The Timetables view generates a weekly timetable for:
+
+Block
+
+Faculty
+
+Timetables display the scheduled time, course, faculty, room, and SET information and can be printed.
+
+Course Management
+
+Courses contain:
+
+Course code
+
+Course title
+
+Year level
+
+Semester
+
+Lecture units
+
+Laboratory units
+
+Category
+
+Optional course capacity
+
+Course capacity is informational only. It is not used as a hard scheduling restriction.
+
+Block Management
+
+Blocks replace the previous Section-based grouping model.
+
+To create blocks:
+
+Select a year level.
+
+Enter the number of blocks to create.
+
+The system automatically creates Block 1, Block 2, etc.
+
+Adding more blocks later continues from the highest existing block number.
+
+Blocks do not have a capacity field.
+
+Assign Courses
+
+Courses are assigned to Blocks through a many-to-many relationship.
+
+This means:
+
+One Block can have many Courses.
+
+One Course can belong to many Blocks.
+
+Only courses assigned to the selected Block appear in the normal Block scheduling flow.
+
+SPARE Allocation
+
+SPARE is a separate allocation group for students/courses that cannot simply be represented by the normal Block structure.
+
+There is one SPARE group per Program + Year Level.
+
+Each course can be configured as:
+
+Join Block
+
+SPARE students join an existing Block's class.
+
+No separate SPARE schedule is created.
+
+A target Block is selected.
+
+The allocation is informational/scheduling linkage.
+
+Separate Schedule
+
+The SPARE course receives its own class schedule.
+
+The SPARE group becomes a scheduling target.
+
+A separate instructor, room, day/time, and component schedule can be plotted.
+
+The course must be explicitly configured as separate_schedule.
+
+Faculty Management
+
+Faculty records contain:
+
+Faculty name
+
+Maximum preparations
+
+Active/Unavailable status
+
+Inactive faculty cannot be assigned to new schedules.
+
+Existing schedules can still be edited when the inactive faculty remains assigned to that schedule.
+
+Room Management
+
+Rooms contain:
+
+Room name
+
+Room type
+
+Active/Unavailable status
+
+Supported room types:
+
+Lecture
+
+Laboratory
+
+There is no room capacity field.
+
+Inactive rooms cannot be assigned to new schedules.
+
+Faculty Course Assignments
+
+A faculty member must be assigned to a course before that faculty member can teach it in a schedule.
+
+Assignments can be:
+
+Added
+
+Edited
+
+Deleted
+
+CSV Import
+
+CSV import is available for:
+
+Courses
+
+Blocks
+
+Course imports support the required course information plus optional fields such as category and units.
+
+Block imports use:
+
+year_level
+
+number_of_blocks
+
+optional program_code
+
+Blocks are automatically named by the system.
+
+CSV templates can be obtained from the Import interface.
+
+3. Scheduling Rules
+
+The backend is the authoritative source for schedule validation. The frontend also provides live/advisory conflict feedback while entering a schedule.
+
+Weekly Unit Rule
+
+This system uses:
+
+1 unit = 1 hour per week
+
+This applies to both:
+
+Lecture units
+
+Laboratory units
+
+The system does not use the common 1 laboratory unit = 3 hours rule.
+
+Examples:
+
+3 units = 3 hours/week
+
+M/W/F × 1 hour = 3 hours/week
+
+T/Th × 1.5 hours = 3 hours/week
+
+The selected day pattern and duration must total the required weekly hours exactly.
+
+Valid Days
+
+Schedules support:
+
+Monday
+
+Tuesday
+
+Wednesday
+
+Thursday
+
+Friday
+
+Saturday
+
+Sunday
+
+Common presets include:
+
+MWF
+
+TTH
+
+MW
+
+TF
+
+Saturday
+
+Custom Days
+
+Custom Days allow any valid combination of weekdays.
+
+SET Types
+
+The system supports:
+
+SET 0 — always face-to-face
+
+SET 1 — alternating hybrid rotation
+
+SET 2 — alternating hybrid rotation
+
+SET availability depends on year level:
+
+Year Level
+
+Allowed SET Types
+
+1st Year
+
+SET 0, SET 1
+
+2nd Year
+
+SET 0, SET 2
+
+3rd Year
+
+SET 0, SET 2
+
+4th Year
+
+SET 0, SET 1
+
+SET 1 and SET 2 are hybrid rotations, not permanently online classes. They still have face-to-face weeks.
+
+Room Requirement
+
+A room is required for all SET types because every supported SET includes a face-to-face meeting period.
+
+SET 0: room required for face-to-face meetings
+
+SET 1: room required during its face-to-face week
+
+SET 2: room required during its face-to-face week
+
+Room type must also match the component:
+
+Lecture → Lecture room
+
+Laboratory → Laboratory room
+
+Instructor Consistency
+
+For the same course, target, and school year:
+
+Lecture and Laboratory must use the same instructor.
+
+The same component cannot be plotted twice.
+
+If a Lecture already exists for a course/Block, another Lecture schedule cannot be created for that same offering.
+
+Faculty Preparation Limit
+
+The system counts unique course preparations for a faculty member by:
+
+School Year + Semester
+
+The faculty member's max_preparations value is enforced when a new course preparation would exceed the limit.
+
+A course's Lecture and Laboratory components do not count as two separate preparations.
+
+Conflict Detection
+
+The system checks for:
+
+Instructor conflicts
+
+Block/SPARE target conflicts
+
+Room conflicts
+
+Duplicate course components
+
+Instructor mismatch between course components
+
+Conflicts are scoped to the same:
+
+School year
+
+Semester
+
+Day/time overlap
+
+A schedule in a different school year or semester does not create a conflict with the current term.
+
+SET-Aware Room Conflict
+
+For physical room conflicts:
+
+SET 0 conflicts with any overlapping schedule.
+
+SET 1 + SET 1 conflicts.
+
+SET 2 + SET 2 conflicts.
+
+SET 1 + SET 2 may share a room/time because their F2F weeks alternate.
+
+However, the SET exception never bypasses instructor or Block/SPARE conflicts.
+
+Lectures and specified non-alternating minor categories continue to conflict for room usage even when SET 1 and SET 2 are opposite rotations.
+
+4. Authentication
+
+The system currently includes a login/logout flow.
+
+Default database account:
+
+Username: institute_head
+Password: ics12345
+
+This account is created by database/ics_plotting.sql.
+
+Important
+
+The default password is intended for initial/local setup. Change the password before using the system in a real deployment.
+
+5. Project Structure
+
+ics_plotting_system/
+│
+├── index.html
+│
+├── api/
+│   ├── auth.php
+│   ├── blocks.php
+│   ├── block_courses.php
+│   ├── bootstrap.php
+│   ├── config.php
+│   ├── courses.php
+│   ├── dashboard.php
+│   ├── faculty.php
+│   ├── faculty_courses.php
+│   ├── import.php
+│   ├── response.php
+│   ├── rooms.php
+│   ├── schedules.php
+│   ├── sections.php
+│   └── spares.php
+│
+├── assets/
+│   ├── css/
+│   │   └── style.css
+│   ├── js/
+│   │   └── app.js
+│   └── img/
+│       ├── ics-logo.png
+│       └── tcgc-logo.jpg
+│
+├── database/
+│   ├── ics_plotting.sql
+│   ├── migration_delivery_mode_hybrid.sql
+│   ├── migration_fixes_2026-07-14.sql
+│   ├── migration_fixes_2026-08-01.sql
+│   ├── migration_fixes_2026-08-06.sql
+│   ├── migration_fixes_2026-08-21.sql
+│   └── migration_subject_offering.sql
+│
+└── UI_IMPROVEMENTS.md
+
+Note: The current application uses Blocks, not Sections. If an old sections.php or Section-related file exists in a copy of the project, it should not be treated as part of the current Block/SPARE workflow.
+
+6. Database Structure
+
+The main database is:
+
+ics_plotting_system
+
+Important tables:
+
+Table
+
+Purpose
+
+users
+
+Login accounts
+
+courses
+
+Course/curriculum information
+
+blocks
+
+Student grouping by year level
+
+block_courses
+
+Block-to-course assignments
+
+spares
+
+SPARE groups
+
+spare_course_allocations
+
+Course-specific SPARE handling
+
+faculty
+
+Faculty information
+
+faculty_courses
+
+Faculty-to-course assignments
+
+rooms
+
+Room information
+
+schedules
+
+Plotted schedules
+
+The schedules table targets either:
+
+a regular Block, or
+
+a SPARE group
+
+but never both at the same time.
+
+7. Installation Using XAMPP
+
+Requirements
+
+Install:
+
+XAMPP
+
+Apache
+
+MySQL/MariaDB
+
+A modern web browser
+
+Step 1 — Copy the Project
+
+Place the project in the XAMPP htdocs directory.
+
+Example:
+
+C:\xampp\htdocs\ics_plotting_system\
+
+Step 2 — Start XAMPP
+
+Start:
+
+Apache
+
+MySQL
+
+Step 3 — Configure the Database Connection
+
+Open:
+
+api/config.php
+
+The current configuration is:
+
+const DB_HOST = '127.0.0.1';
+const DB_PORT = '3307';
+const DB_NAME = 'ics_plotting_system';
+const DB_USER = 'root';
+const DB_PASS = '';
+
+If MySQL uses the normal XAMPP port, change:
+
+const DB_PORT = '3306';
+
+If your MySQL uses another port, use that port instead.
+
+Keep DB_HOST as 127.0.0.1 when relying on the configured TCP port.
+
+Step 4 — Import the Database
+
+Open phpMyAdmin and import:
+
+database/ics_plotting.sql
+
+The SQL file creates the database, tables, constraints, and initial sample records.
+
+Because the current Block/SPARE design is a breaking schema change, a fresh import of ics_plotting.sql is recommended for a new installation rather than mixing old Section-based data with the new schema.
+
+Step 5 — Disable Debug Mode Before Real Use
+
+Open:
+
+api/config.php
+
+Change:
+
+const APP_DEBUG = true;
+
+to:
+
+const APP_DEBUG = false;
+
+Debug mode can expose server/database exception details and should not remain enabled for real use.
+
+Step 6 — Open the System
+
+Use:
+
+http://localhost/ics_plotting_system/
+
+Log in using the configured account.
+
+8. Recommended Initial Workflow
+
+For a new academic schedule:
+
+Log in.
+
+Add/check Courses.
+
+Add/check Faculty.
+
+Add/check Rooms.
+
+Assign Courses to Faculty.
+
+Create Blocks for each Year Level.
+
+Assign Courses to the appropriate Blocks.
+
+Configure SPARE allocations when necessary.
+
+Open Plot Schedule.
+
+Select Academic Year, Year Level, and Block/SPARE.
+
+Review the generated course offering.
+
+Plot the required Lecture/Laboratory components.
+
+Resolve any validation/conflict messages.
+
+Review the Schedules list.
+
+Check the Timetables view.
+
+Print the required timetable/schedule.
+
+9. Security Features
+
+The backend includes several protections:
+
+Password verification using PHP password hashing
+
+PHP session authentication
+
+Session ID regeneration after login
+
+HttpOnly session cookies
+
+SameSite cookie protection
+
+HTTPS-aware Secure cookie configuration
+
+CSRF token generation and validation
+
+Prepared SQL statements through PDO
+
+Backend validation of schedule rules
+
+Friendly database error handling
+
+HTML escaping in frontend-generated content
+
+The frontend's validation is only advisory where applicable. The backend performs the authoritative validation before saving schedules.
+
+10. Current Limitations
+
+The following are intentionally not fully implemented:
+
+Editing a course's year level/semester/units after schedules already exist does not automatically re-validate every existing schedule against the new course definition.
+
+No faculty-side account/login for view-only teaching loads.
+
+No Excel/CSV export of schedules.
+
+No full faculty teaching-hours/overload calculation; only maximum unique course preparations are enforced.
+
+No day-specific or time-specific faculty availability/blackout settings.
+
+Timetable cells may visually stack schedules when legitimate alternating SET schedules occupy the same time slot.
+
+Individual student-level scheduling is outside the system scope. The system works with Block schedules rather than individual enrollment schedules.
+
+SPARE currently supports one SPARE group per Program + Year Level.
+
+11. Important Design Decisions
+
+Blocks instead of Sections
+
+The current system intentionally uses Block as the student grouping unit.
+
+Blocks:
+
+Are created automatically.
+
+Do not store capacity.
+
+Are connected to courses through block_courses.
+
+Course Capacity
+
+courses.max_students is optional and informational.
+
+It is not:
+
+a Block capacity,
+
+a Room capacity,
+
+or a hard schedule-planning restriction.
+
+It can be used as a reference when deciding whether a SPARE allocation is necessary.
+
+Laboratory Hours
+
+Laboratory units are treated exactly like lecture units for weekly-hour validation:
+
+1 lab unit = 1 hour/week
+
+There is no automatic laboratory ×3 conversion.
+
+SPARE
+
+SPARE is deliberately separated from regular Blocks.
+
+A SPARE course either:
+
+joins an existing Block, or
+
+receives its own separate SPARE schedule.
+
+12. API Endpoints
+
+The frontend communicates with these PHP endpoints:
+
+api/auth.php
+api/blocks.php
+api/block_courses.php
+api/courses.php
+api/dashboard.php
+api/faculty.php
+api/faculty_courses.php
+api/import.php
+api/rooms.php
+api/schedules.php
+api/spares.php
+
+All protected management/scheduling endpoints require an authenticated session.
+
+State-changing requests are protected by the CSRF token mechanism.
+
+13. Frontend Notes
+
+The main frontend files are:
+
+index.html
+assets/css/style.css
+assets/js/app.js
+
+The UI includes:
+
+Responsive sidebar
+
+Dashboard cards
+
+Modal-based forms
+
+Toast notifications
+
+Confirmation dialogs
+
+Search
+
+Sorting
+
+Pagination
+
+Live scheduling conflict preview
+
+Suggested alternative times
+
+Quick schedule editing
+
+Responsive layouts
+
+Print-specific styling
+
+Loading states for save/login actions
+
+Keyboard-friendly focus states
+
+Font Awesome is currently loaded from a CDN, so the icons require network access unless the dependency is changed to a local copy.
+
+14. Development / Maintenance Notes
+
+When changing scheduling rules, update both:
+
+api/schedules.php
+
+and the corresponding frontend logic in:
+
+assets/js/app.js
+
+The backend must remain the authoritative validator.
+
+When changing the database schema:
+
+Update the main schema/migration as appropriate.
+
+Check all related PHP APIs.
+
+Check frontend state and forms.
+
+Test existing schedule conflict behavior.
+
+Test Block and SPARE flows.
+
+Re-test timetable generation and printing.
+
+15. Project Status
+
+The current system includes the core workflow for:
+
+Course → Faculty → Block/SPARE → Course Assignment → Schedule Plotting → Conflict Validation → Schedule List → Timetable/Printing
+
+The current data model is based on Blocks + SPARE, not the previous Section model.
+
+For a clean installation, use the current database/ics_plotting.sql schema and configure the MySQL port in api/config.php to match the local XAMPP installation.
