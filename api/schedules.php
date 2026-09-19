@@ -136,7 +136,7 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
         $submittedDays = array_map('trim', explode(',', $d['day_of_week']));
         $invalidDays = array_diff($submittedDays, $validDayNames);
         if (empty($submittedDays) || !empty($invalidDays)) {
-            json_response(false, 'Please select at least one valid day of the week.', null, 422);
+            json_response(false, 'Select at least one valid day of the week.', null, 422);
         }
         // The frontend's checkbox UI can't submit the same day twice, but a
         // direct API call could send e.g. "Monday,Monday,Wednesday". Without

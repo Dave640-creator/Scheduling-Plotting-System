@@ -419,7 +419,7 @@ function fillSelect(id, data, labelFn, value = 'id', first = 'Select') {
  * instructor conflicts (same instructor double-booked) are a separate,
  * red issue handled by findScheduleConflicts().
  */
-const INSTRUCTOR_MISSING_HTML = '<span class="instructor-missing" title="No instructor assigned yet -- you can still save this schedule and assign one later."><i class="fas fa-triangle-exclamation"></i> Not assigned</span>';
+const INSTRUCTOR_MISSING_HTML = '<span class="instructor-missing" title="Instructor not assigned. You can assign one later."><i class="fas fa-triangle-exclamation"></i> Instructor not assigned</span>';
 
 function instructorCellHtml(s) {
   return s.faculty_id ? escapeHtml(s.faculty_name) : INSTRUCTOR_MISSING_HTML;
@@ -1308,7 +1308,7 @@ function renderNeedsAttention() {
     items.push({ icon: 'fa-layer-group', tone: '', title: `${conflicts.block} Block/SPARE Conflict${conflicts.block === 1 ? '' : 's'}`, sub: 'A block or SPARE group has overlapping classes', view: 'schedules' });
   }
   if (noInstructor > 0) {
-    items.push({ icon: 'fa-user-slash', tone: 'warn-amber', title: `${noInstructor} Schedule${noInstructor === 1 ? '' : 's'} Without Instructor`, sub: 'Warning only -- assign an instructor when ready', view: 'schedules' });
+    items.push({ icon: 'fa-user-slash', tone: 'warn-amber', title: `${noInstructor} Schedule${noInstructor === 1 ? '' : 's'} Without Instructor`, sub: 'Warning only — assign when ready', view: 'schedules' });
   }
   if (unassignedCourses > 0) {
     items.push({ icon: 'fa-clipboard-question', tone: 'warn-amber', title: `${unassignedCourses} Unplotted Course${unassignedCourses === 1 ? '' : 's'}`, sub: 'Not yet plotted into any schedule', view: 'courses' });
@@ -1495,7 +1495,7 @@ function renderBlocksTable() {
     { key: 'courses', label: 'Courses Assigned', sortable: false, render: (b) => String(courseIdsForBlock(b.id).length) },
   ], state.blocks, {
     emptyIcon: 'fa-layer-group',
-    emptyMessage: 'No blocks have been created yet. Use "Add Block" to create some.',
+    emptyMessage: 'No blocks yet.',
     rowActions: (b) => `
       <button class="btn btn-secondary btn-sm" onclick="openAssignBlockCoursesModal(${b.id})" title="Assign Courses" aria-label="Assign courses to this block"><i class="fas fa-book"></i></button>
       <button class="btn btn-secondary btn-sm" onclick="openBlockRenameModal(${b.id})" title="Rename" aria-label="Rename block"><i class="fas fa-pen"></i></button>
@@ -1972,7 +1972,7 @@ function componentSummaryText(schedule) {
   if (!schedule) return '';
   const fac = state.faculty.find((f) => Number(f.id) === Number(schedule.faculty_id));
   const room = schedule.room_name || 'No room selected';
-  return `${formatDayPattern(schedule.day_of_week)} ${formatTimeDisplay(schedule.start_time.slice(0, 5))}-${formatTimeDisplay(schedule.end_time.slice(0, 5))} \u00b7 ${room}` + (fac ? ` \u00b7 ${fac.faculty_name}` : ' \u00b7 \u26a0 No instructor yet');
+  return `${formatDayPattern(schedule.day_of_week)} ${formatTimeDisplay(schedule.start_time.slice(0, 5))}-${formatTimeDisplay(schedule.end_time.slice(0, 5))} \u00b7 ${room}` + (fac ? ` \u00b7 ${fac.faculty_name}` : ' \u00b7 \u26a0 Instructor not assigned');
 }
 
 function hasEditableComponent() {
@@ -2089,7 +2089,7 @@ function toggleFacultyLockBadge(show) {
 function updateFacultyOptions() {
   const course = getSelectedCourse();
   const hint = $('facultyHint');
-  const noInstructorLabel = 'No instructor yet (assign later)';
+  const noInstructorLabel = 'Not assigned — assign later';
 
   // Instructor is OPTIONAL -- every branch below leaves the field blank-able
   // and never blocks saving. "Not assigned" is only a warning.
@@ -2097,7 +2097,7 @@ function updateFacultyOptions() {
     $('scheduleFaculty').innerHTML = '<option value="">Select course first</option>';
     $('scheduleFaculty').disabled = true;
     $('scheduleFaculty').title = 'Select a course first.';
-    if (hint) hint.textContent = '\ud83d\udd12 Select a course first. Instructor is optional.';
+    if (hint) hint.textContent = '\ud83d\udd12 Select a course first.';
     toggleFacultyLockBadge(false);
     return;
   }
@@ -2106,8 +2106,8 @@ function updateFacultyOptions() {
   if (!qualifiedFaculty.length) {
     $('scheduleFaculty').innerHTML = `<option value="">${noInstructorLabel}</option>`;
     $('scheduleFaculty').disabled = true;
-    $('scheduleFaculty').title = 'No faculty is assigned to this course yet (Faculty Course Assignments).';
-    if (hint) hint.textContent = '\u26a0 Instructor not assigned -- you can still save this schedule. Assign a faculty in Faculty Course Assignments to pick one later.';
+    $('scheduleFaculty').title = 'No faculty assigned to this course yet. See Faculty Course Assignments.';
+    if (hint) hint.textContent = '\u26a0 Instructor not assigned. Add one in Faculty Course Assignments.';
     toggleFacultyLockBadge(false);
     return;
   }
@@ -2123,7 +2123,7 @@ function updateFacultyOptions() {
     fillSelect('scheduleFaculty', qualifiedFaculty, (f) => f.faculty_name + (Number(f.is_active) === 0 ? ' (Inactive)' : ''), 'id', noInstructorLabel);
     $('scheduleFaculty').value = String(inheritedFacultyId);
     $('scheduleFaculty').disabled = true;
-    $('scheduleFaculty').title = `Instructor inherited from the existing ${course.course_code} schedule for this target -- Lecture and Laboratory must share the same instructor.`;
+    $('scheduleFaculty').title = `Instructor inherited from the existing ${course.course_code} schedule for this target — Lecture and Laboratory must share the same instructor.`;
     const targetLabel = target ? (target.type === 'block' ? blockLabel(state.blocks.find((b) => Number(b.id) === target.id) || {}) : spareLabel(state.spares.find((sp) => Number(sp.id) === target.id) || {})) : 'this target';
     if (hint) hint.innerHTML = `\ud83d\udd12 Instructor inherited from existing <strong>${escapeHtml(course.course_code)}</strong> schedule for <strong>${escapeHtml(targetLabel)}</strong> (${escapeHtml(sibling.component)}).`;
     toggleFacultyLockBadge(true);
@@ -2138,7 +2138,7 @@ function updateFacultyOptions() {
     $('scheduleFaculty').value = previousValue;
   }
   toggleFacultyLockBadge(false);
-  if (hint) hint.textContent = `Optional -- ${qualifiedFaculty.length} eligible faculty member${qualifiedFaculty.length === 1 ? '' : 's'} found. Leave blank to assign later (a warning is shown until you do).`;
+  if (hint) hint.textContent = `${qualifiedFaculty.length} eligible instructor${qualifiedFaculty.length === 1 ? '' : 's'} found. You can assign one later.`;
 }
 
 function updateRoomOptions(component) {
@@ -2153,15 +2153,15 @@ function updateRoomOptions(component) {
 }
 
 const SET_TYPE_HINTS = {
-  set_0: 'SET 0: 🏫 Always F2F, every meeting -- used by Laboratory components only. A room is required.',
-  set_1: 'SET 1: 🏫 F2F / Online Rotation -- starts F2F, then alternates continuously (F2F → Online → F2F → ...). Used by Lecture components (1st/4th year). May share the same room/time as SET 2 (won\'t room-conflict with it), but conflicts with SET 0 and other SET 1 -- and instructor/block conflicts against SET 2 are always checked regardless.',
-  set_2: 'SET 2: 💻 Online / F2F Rotation -- starts Online, then alternates continuously (Online → F2F → Online → ...). Used by Lecture components (2nd/3rd year). May share the same room/time as SET 1 (won\'t room-conflict with it), but conflicts with SET 0 and other SET 2 -- and instructor/block conflicts against SET 1 are always checked regardless.',
+  set_0: 'SET 0: 🏫 Always F2F, every meeting — used by Laboratory components only. A room is required.',
+  set_1: 'SET 1: 🏫 F2F / Online Rotation — starts F2F, then alternates continuously (F2F → Online → F2F → ...). Used by Lecture components (1st/4th year). May share the same room/time as SET 2 (won\'t room-conflict with it), but conflicts with SET 0 and other SET 1, and instructor/block conflicts against SET 2 are always checked regardless.',
+  set_2: 'SET 2: 💻 Online / F2F Rotation — starts Online, then alternates continuously (Online → F2F → Online → ...). Used by Lecture components (2nd/3rd year). May share the same room/time as SET 1 (won\'t room-conflict with it), but conflicts with SET 0 and other SET 2, and instructor/block conflicts against SET 1 are always checked regardless.',
 };
 
 const ROOM_HINTS = {
-  set_0: 'Face-to-face -- Room required.',
-  set_1: 'F2F / Online Rotation -- Room required for its recurring F2F meeting.',
-  set_2: 'Online / F2F Rotation -- Room required for its recurring F2F meeting.',
+  set_0: 'Face-to-face — room required.',
+  set_1: 'F2F / Online Rotation — room required for its recurring F2F meeting.',
+  set_2: 'Online / F2F Rotation — room required for its recurring F2F meeting.',
 };
 
 function updateRoomRequirement(component) {
@@ -2580,7 +2580,7 @@ function renderTables() {
     { key: 'max_students', label: 'Capacity', render: (c) => c.max_students ? escapeHtml(String(c.max_students)) : '\u2013' },
   ], coursesForTable, {
     emptyIcon: 'fa-book',
-    emptyMessage: coursesYearFilter ? 'No courses for this year level yet.' : 'No courses have been added yet.',
+    emptyMessage: coursesYearFilter ? 'No courses for this year level yet.' : 'No courses yet.',
     rowActions: (c) => `<button class="btn btn-secondary btn-sm" onclick="editCourse(${c.id})" title="Edit" aria-label="Edit course"><i class="fas fa-pen"></i></button> <button class="btn btn-danger btn-sm" onclick="del('courses',${c.id})" title="Delete" aria-label="Delete course"><i class="fas fa-trash"></i></button>`,
   });
 
@@ -2612,7 +2612,7 @@ function renderTables() {
       } },
   ], state.faculty, {
     emptyIcon: 'fa-chalkboard-user',
-    emptyMessage: 'No faculty members have been added yet.',
+    emptyMessage: 'No faculty yet.',
     rowActions: (f) => `<button class="btn btn-secondary btn-sm" onclick="editFaculty(${f.id})" title="Edit" aria-label="Edit faculty"><i class="fas fa-pen"></i></button> <button class="btn btn-danger btn-sm" onclick="del('faculty',${f.id})" title="Delete" aria-label="Delete faculty"><i class="fas fa-trash"></i></button>`,
   });
 
@@ -2622,7 +2622,7 @@ function renderTables() {
     { key: 'is_active', label: 'Status', sortValue: (r) => Number(r.is_active), render: (r) => Number(r.is_active) === 1 ? '<span class="badge active">Active</span>' : '<span class="badge inactive">Unavailable</span>' },
   ], state.rooms, {
     emptyIcon: 'fa-door-open',
-    emptyMessage: 'No rooms have been added yet.',
+    emptyMessage: 'No rooms yet.',
     rowActions: (r) => `<button class="btn btn-secondary btn-sm" onclick="editRoom(${r.id})" title="Edit" aria-label="Edit room"><i class="fas fa-pen"></i></button> <button class="btn btn-danger btn-sm" onclick="del('rooms',${r.id})" title="Delete" aria-label="Delete room"><i class="fas fa-trash"></i></button>`,
   });
 
@@ -2660,7 +2660,7 @@ const SCHEDULES_TABLE_COLUMNS = [
 function renderSchedulesTable(allRows = false) {
   renderDataTable('schedulesTable', SCHEDULES_TABLE_COLUMNS, filteredSchedules(), {
     emptyIcon: 'fa-calendar-xmark',
-    emptyMessage: 'No schedules generated yet.',
+    emptyMessage: 'No schedules yet.',
     allRows,
     rowActions: (s) => `<button class="btn btn-secondary btn-sm" onclick="editSchedule(${s.id})" title="Edit" aria-label="Edit schedule"><i class="fas fa-pen"></i></button> <button class="btn btn-danger btn-sm" onclick="del('schedules',${s.id})" title="Delete" aria-label="Delete schedule"><i class="fas fa-trash"></i></button>`,
   });
@@ -3464,7 +3464,7 @@ async function submitScheduleForm() {
     });
 
   if (!componentsPayload.length) {
-    showToast('Nothing to save -- click Edit on a component above to change it.', 'warning');
+    showToast('Nothing to save. Click Edit on a component to change it.', 'warning');
     return;
   }
 
