@@ -2752,6 +2752,70 @@ tbody tr:last-child td {
     padding-bottom: var(--spacing-md);
     margin-bottom: var(--spacing-lg);
   }
+
+  /* Course Offering print (printOffering() in app.js toggles this class on
+     <body> for the duration of the print job). The whole Plot Schedule view
+     lives inside <form id="scheduleForm">, which the generic `form { display:
+     none }` rule above hides on every print -- that's why the offering table
+     was rendering blank below the letterhead. This re-shows that one form and,
+     inside it, only the actual Course Offering table: the Academic Year/Year
+     Level/Semester picker and the Faculty Assignment/Components sections stay
+     hidden, since the letterhead above already states the selected context. */
+  body.printing-offering #scheduleForm {
+    display: block !important;
+  }
+
+  body.printing-offering #scheduleForm > *:not(#offeringOverviewSection) {
+    display: none !important;
+  }
+
+  body.printing-offering #offeringOverviewSection .form-section-title,
+  body.printing-offering #offeringOverviewSection > .field-hint {
+    display: none !important;
+  }
+
+  /* Let a long offering list flow across multiple printed pages instead of
+     being clipped by the generic .card { page-break-inside: avoid } rule. */
+  body.printing-offering .view.active .card {
+    page-break-inside: auto;
+  }
+
+  body.printing-offering .offering-block-section {
+    page-break-inside: avoid;
+    margin-bottom: 18px;
+  }
+
+  body.printing-offering .offering-block-title {
+    color: #000;
+  }
+
+  body.printing-offering .offering-table {
+    border-collapse: collapse;
+  }
+
+  body.printing-offering .offering-table th,
+  body.printing-offering .offering-table td {
+    border: 1px solid #999;
+    padding: 4px 6px;
+  }
+
+  /* Repeats the header row on each new page a block's table spans. */
+  body.printing-offering .offering-table thead {
+    display: table-header-group;
+  }
+
+  body.printing-offering .offering-table tr {
+    page-break-inside: avoid;
+  }
+
+  /* The trailing column only ever held a clickable edit/add icon on screen
+     -- nothing to click on paper, so drop the column entirely. Cells with
+     a colspan (the "no courses in this block" empty-state row) are left
+     alone since they're the row's only cell, not the action column. */
+  body.printing-offering .offering-table th:last-child,
+  body.printing-offering .offering-table td:last-child:not([colspan]) {
+    display: none;
+  }
 }
 
 /* Hidden on screen at all times -- only ever shown inside @media print above. */
