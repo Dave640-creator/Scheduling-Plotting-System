@@ -337,7 +337,7 @@
       <div class="card">
         <form id="scheduleForm" class="form-grid">
 
-          <div class="form-section">
+          <div class="form-section" id="scheduleSubjectOfferingSection">
             <div class="form-section-title"><i class="fas fa-clipboard-list"></i> Subject Offering</div>
 
             <div class="form-group">
@@ -425,14 +425,14 @@
 
             <div class="form-group">
               <label for="scheduleFaculty">
-                <i class="fas fa-chalkboard-user"></i> Faculty
-                <span class="required">*</span>
+                <i class="fas fa-chalkboard-user"></i> Instructor
+                <span class="optional-tag">(optional)</span>
                 <span id="facultyLockBadge" class="lock-badge hidden"><i class="fas fa-lock"></i> Inherited</span>
               </label>
-              <select id="scheduleFaculty" required title="Select a course first" disabled>
+              <select id="scheduleFaculty" title="Select a course first" disabled>
                 <option value="">Select course first</option>
               </select>
-              <p class="field-hint" id="facultyHint">🔒 Select a course first to choose an eligible faculty.</p>
+              <p class="field-hint" id="facultyHint">🔒 Select a course first. Instructor is optional.</p>
             </div>
           </div>
 
@@ -988,7 +988,7 @@
             </select>
           </div>
           <div class="form-group">
-            <label><i class="fas fa-user-group"></i> Course Capacity</label>
+            <label for="courseMaxStudentsDisplay"><i class="fas fa-user-group"></i> Course Capacity</label>
             <input id="courseMaxStudentsDisplay" type="text" disabled />
             <input id="courseMaxStudents" type="hidden" />
             <p class="field-hint">Set automatically from Lab Units: 30 if this course has a Laboratory component, 45 if it's pure lecture (Lab Units = 0). Used for deciding when SPARE allocation is needed -- not enforced when plotting.</p>

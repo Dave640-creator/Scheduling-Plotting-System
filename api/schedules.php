@@ -22,55 +22,48 @@ function schedules_share_day(string $a, string $b): bool {
 }
 
 /**
- * A course/component is exempt from the SET_1/SET_2 alternation rule (i.e.
- * it still conflicts even against the "opposite" alternating set) when it's
- * a lecture component or one of these specific non-alternating minor
- * categories (GE, PATHFIT, NSTP, LuxMundi) -- these meet every week, not on
- * alternating weeks, so SET 1 and SET 2 of one of these still coincide.
- * Deliberately NOT "any non-major category": electives (and "other") can
- * have real major-style lab components (e.g. ESC 211/221/312/321/322/323/
- * 412/413) that DO alternate week-to-week like a major's lab, so treating
- * every non-major category as exempt would incorrectly block a valid
- * SET1/SET2 elective-lab pairing.
+ * Which alternating (hybrid) SET each year level rotates on: 1st and 4th
+ * year use SET 1 (F2F Week 1 / Online Week 2), 2nd and 3rd year use the
+ * opposite pattern, SET 2 (Online Week 1 / F2F Week 2). This applies
+ * identically whether the schedule's target is a regular Block or the
+ * SPARE group -- both are keyed off the same year_level.
  */
-const NON_ALTERNATING_MINOR_CATEGORIES = ['ge', 'pathfit', 'nstp', 'luxmundi'];
-
-/**
- * Which SET types a year level is allowed to use. Per the actual school
- * business rules: 1st and 4th year rotate on SET 1 (F2F Week 1 / Online
- * Week 2), while 2nd and 3rd year rotate on the opposite pattern, SET 2
- * (Online Week 1 / F2F Week 2). SET 0 (always face-to-face) is available
- * to every year level. This applies identically whether the schedule's
- * target is a regular Block or the SPARE group -- both are keyed off the
- * same year_level. This is intentionally NOT "any year can use any SET" --
- * a 1st year target submitting SET 2, for example, must be rejected.
- */
-const ALLOWED_SET_TYPES_BY_YEAR_LEVEL = [
-    1 => ['set_0', 'set_1'],
-    2 => ['set_0', 'set_2'],
-    3 => ['set_0', 'set_2'],
-    4 => ['set_0', 'set_1'],
+const ALTERNATING_SET_BY_YEAR_LEVEL = [
+    1 => 'set_1',
+    2 => 'set_2',
+    3 => 'set_2',
+    4 => 'set_1',
 ];
 
 const SET_TYPE_LABELS = ['set_0' => 'SET 0', 'set_1' => 'SET 1', 'set_2' => 'SET 2'];
 
-function is_minor_or_lecture(string $component, string $category): bool {
-    return $component === 'lecture' || in_array($category, NON_ALTERNATING_MINOR_CATEGORIES, true);
+/**
+ * The one SET rule of this system, by component:
+ * - LABORATORY is always SET 0 (always face-to-face). Only labs use SET 0.
+ * - LECTURE is never SET 0. It uses the alternating SET of its target's
+ *   year level (SET 1 for 1st/4th year, SET 2 for 2nd/3rd year). This is
+ *   also true for pure-lecture courses (no lab) -- they are never SET 0.
+ * Returns the list of SET types that are valid for that component + year.
+ */
+function allowed_set_types(string $component, int $yearLevel): array {
+    if ($component === 'laboratory') return ['set_0'];
+    $alternating = ALTERNATING_SET_BY_YEAR_LEVEL[$yearLevel] ?? null;
+    return $alternating ? [$alternating] : [];
 }
 
 /**
- * SET-aware conflict rule for two schedules that already overlap in day/time:
- * - SET 0 is always face-to-face, so it conflicts with anything.
- * - The same alternating set (SET 1 + SET 1, or SET 2 + SET 2) always
- *   coincides on the same weeks, so it conflicts.
- * - SET 1 + SET 2 alternate on opposite weeks and are NOT physically
- *   simultaneous -- UNLESS either side is a lecture component or a minor
- *   course, in which case it still conflicts.
+ * SET-aware ROOM conflict rule for two schedules that already overlap in
+ * day/time and use the same room:
+ * - SET 0 is always face-to-face and never alternates, so it conflicts
+ *   with anything (SET 0, SET 1 or SET 2).
+ * - The same alternating set (SET 1 + SET 1, or SET 2 + SET 2) lands on the
+ *   same weeks, so it conflicts.
+ * - SET 1 + SET 2 are opposite rotations (one is F2F while the other is
+ *   online), so they can share the room -- they do NOT conflict.
  */
-function sets_conflict(string $setA, string $setB, bool $exemptA, bool $exemptB): bool {
+function sets_conflict(string $setA, string $setB): bool {
     if ($setA === 'set_0' || $setB === 'set_0') return true;
-    if ($setA === $setB) return true;
-    return $exemptA || $exemptB;
+    return $setA === $setB;
 }
 
 /**
@@ -113,7 +106,15 @@ function same_target(array $a, array $b): bool {
 }
 
 function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
-    require_fields($d, ['course_id','faculty_id','component','set_type','day_of_week','start_time','end_time','school_year']);
+    require_fields($d, ['course_id','component','set_type','day_of_week','start_time','end_time','school_year']);
+
+    // Instructor is OPTIONAL while plotting: subjects are often plotted
+    // before the final instructor assignment. A missing instructor is NOT a
+    // conflict and never blocks a save -- every instructor-specific rule
+    // below (eligibility, active status, preparation limit, Lecture/Lab
+    // consistency, instructor double-booking) simply runs only when an
+    // instructor is actually assigned, i.e. when $facultyId is not null.
+    $facultyId = empty($d['faculty_id']) ? null : (int)$d['faculty_id'];
 
     if (!preg_match('/^\d{4}-\d{4}$/', $d['school_year'])) {
         json_response(false, 'School year must be in the format YYYY-YYYY (e.g. 2026-2027).', null, 422);
@@ -187,20 +188,19 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
         }
     }
 
-    // Year-level -> allowed SET type validation. This is enforced here in
+    // Component + year-level -> allowed SET type validation. Enforced in
     // the backend regardless of what the frontend hides, since a direct API
     // call (or stale UI state) must never be able to plot an invalid
-    // SET/year-level combination.
-    $allowedSetTypes = ALLOWED_SET_TYPES_BY_YEAR_LEVEL[$targetYearLevel] ?? ['set_0'];
+    // SET/component combination: labs are always SET 0, lectures are never
+    // SET 0 (see allowed_set_types()).
+    $allowedSetTypes = allowed_set_types((string)$d['component'], $targetYearLevel);
     if (!in_array($d['set_type'], $allowedSetTypes, true)) {
-        $allowedLabels = implode(' or ', array_map(fn($s) => SET_TYPE_LABELS[$s] ?? $s, $allowedSetTypes));
         $submittedLabel = SET_TYPE_LABELS[$d['set_type']] ?? $d['set_type'];
-        json_response(
-            false,
-            'Invalid SET for this target: Year ' . $targetYearLevel . ' may only use ' . $allowedLabels . '. "' . $submittedLabel . '" is not allowed.',
-            null,
-            422
-        );
+        $allowedLabels = implode(' or ', array_map(fn($s) => SET_TYPE_LABELS[$s] ?? $s, $allowedSetTypes));
+        $message = $d['component'] === 'laboratory'
+            ? 'Invalid SET: a Laboratory is always SET 0 (face-to-face). "' . $submittedLabel . '" is not allowed.'
+            : 'Invalid SET: a Lecture is never SET 0. Year ' . $targetYearLevel . ' lectures use ' . $allowedLabels . '. "' . $submittedLabel . '" is not allowed.';
+        json_response(false, $message, null, 422);
     }
 
     if ($d['component'] === 'lecture' && (float)$course['lec_units'] <= 0) {
@@ -247,15 +247,18 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
         );
     }
 
-    $facultyStmt = $pdo->prepare('SELECT * FROM faculty WHERE id=?');
-    $facultyStmt->execute([(int)$d['faculty_id']]);
-    $faculty = $facultyStmt->fetch();
-    if (!$faculty) json_response(false, 'Faculty not found.', null, 404);
+    $faculty = null;
+    if ($facultyId !== null) {
+        $facultyStmt = $pdo->prepare('SELECT * FROM faculty WHERE id=?');
+        $facultyStmt->execute([$facultyId]);
+        $faculty = $facultyStmt->fetch();
+        if (!$faculty) json_response(false, 'Faculty not found.', null, 404);
 
-    $allowedStmt = $pdo->prepare('SELECT COUNT(*) FROM faculty_courses WHERE faculty_id=? AND course_id=?');
-    $allowedStmt->execute([(int)$d['faculty_id'], (int)$d['course_id']]);
-    if ((int)$allowedStmt->fetchColumn() === 0) {
-        json_response(false, 'Faculty is not assigned/allowed to teach this course. Assign the course to the faculty first in Faculty Courses.', null, 422);
+        $allowedStmt = $pdo->prepare('SELECT COUNT(*) FROM faculty_courses WHERE faculty_id=? AND course_id=?');
+        $allowedStmt->execute([$facultyId, (int)$d['course_id']]);
+        if ((int)$allowedStmt->fetchColumn() === 0) {
+            json_response(false, 'Faculty is not assigned/allowed to teach this course. Assign the course to the faculty first in Faculty Courses.', null, 422);
+        }
     }
 
     // Instructor consistency + duplicate-component check: a course's Lecture
@@ -273,7 +276,7 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
     // direct API calls / the batched "subject offering" save).
     $targetColumn = $targetType === 'block' ? 'block_id' : 'spare_id';
     $siblingSql = "SELECT s.id, s.faculty_id, s.component, f.faculty_name
-                   FROM schedules s JOIN faculty f ON f.id = s.faculty_id
+                   FROM schedules s LEFT JOIN faculty f ON f.id = s.faculty_id
                    WHERE s.course_id=? AND s.$targetColumn=? AND s.school_year=?";
     $siblingParams = [(int)$d['course_id'], (int)$targetRow['id'], $d['school_year']];
     if ($ignoreId) { $siblingSql .= ' AND s.id<>?'; $siblingParams[] = $ignoreId; }
@@ -299,8 +302,10 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
         }
     }
 
+    // Only compares when BOTH sides have an instructor -- a sibling (or this
+    // component) with no instructor yet is "not assigned", not a mismatch.
     foreach ($siblingSchedules as $siblingSchedule) {
-        if ((int)$siblingSchedule['faculty_id'] !== (int)$d['faculty_id']) {
+        if ($facultyId !== null && $siblingSchedule['faculty_id'] !== null && (int)$siblingSchedule['faculty_id'] !== $facultyId) {
             json_response(
                 false,
                 $course['course_code'] . ' for ' . $targetLabel . ' is already assigned to ' . $siblingSchedule['faculty_name'] . '. Lecture and Laboratory must use the same instructor.',
@@ -324,8 +329,8 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
         $existingSchedule = $existingScheduleStmt->fetch();
     }
 
-    if ((int)$faculty['is_active'] === 0) {
-        $facultyUnchanged = $existingSchedule && (int)$existingSchedule['faculty_id'] === (int)$d['faculty_id'];
+    if ($faculty !== null && (int)$faculty['is_active'] === 0) {
+        $facultyUnchanged = $existingSchedule && (int)$existingSchedule['faculty_id'] === $facultyId;
         if (!$facultyUnchanged) {
             json_response(false, 'This faculty is marked unavailable and cannot be assigned new schedules. Reactivate them in Faculty Management first.', null, 422);
         }
@@ -334,23 +339,26 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
     // Preparations are counted per term (same school year + same semester the
     // course belongs to), not across the faculty's entire history -- otherwise
     // a faculty's load from past semesters would permanently count against them.
-    $prepSql = 'SELECT COUNT(DISTINCT sch.course_id) FROM schedules sch JOIN courses c2 ON c2.id = sch.course_id
-                WHERE sch.faculty_id=? AND sch.school_year=? AND c2.semester_type=?';
-    $prepParams = [(int)$d['faculty_id'], $d['school_year'], $course['semester_type']];
-    if ($ignoreId) { $prepSql .= ' AND sch.id<>?'; $prepParams[] = $ignoreId; }
-    $prepStmt = $pdo->prepare($prepSql);
-    $prepStmt->execute($prepParams);
-    $currentPreparations = (int)$prepStmt->fetchColumn();
+    // Skipped entirely when no instructor is assigned yet.
+    if ($faculty !== null) {
+        $prepSql = 'SELECT COUNT(DISTINCT sch.course_id) FROM schedules sch JOIN courses c2 ON c2.id = sch.course_id
+                    WHERE sch.faculty_id=? AND sch.school_year=? AND c2.semester_type=?';
+        $prepParams = [$facultyId, $d['school_year'], $course['semester_type']];
+        if ($ignoreId) { $prepSql .= ' AND sch.id<>?'; $prepParams[] = $ignoreId; }
+        $prepStmt = $pdo->prepare($prepSql);
+        $prepStmt->execute($prepParams);
+        $currentPreparations = (int)$prepStmt->fetchColumn();
 
-    $courseAlreadySql = 'SELECT COUNT(*) FROM schedules WHERE faculty_id=? AND course_id=? AND school_year=?';
-    $courseAlreadyParams = [(int)$d['faculty_id'], (int)$d['course_id'], $d['school_year']];
-    if ($ignoreId) { $courseAlreadySql .= ' AND id<>?'; $courseAlreadyParams[] = $ignoreId; }
-    $courseAlreadyStmt = $pdo->prepare($courseAlreadySql);
-    $courseAlreadyStmt->execute($courseAlreadyParams);
-    $isNewPreparation = ((int)$courseAlreadyStmt->fetchColumn() === 0);
-    $maxPreparations = (int)$faculty['max_preparations'];
-    if ($isNewPreparation && $currentPreparations >= $maxPreparations) {
-        json_response(false, 'Faculty preparation limit exceeded. Maximum is ' . $maxPreparations . ' unique course preparation(s) for this faculty for ' . $d['school_year'] . ' (' . $course['semester_type'] . ').', null, 422);
+        $courseAlreadySql = 'SELECT COUNT(*) FROM schedules WHERE faculty_id=? AND course_id=? AND school_year=?';
+        $courseAlreadyParams = [$facultyId, (int)$d['course_id'], $d['school_year']];
+        if ($ignoreId) { $courseAlreadySql .= ' AND id<>?'; $courseAlreadyParams[] = $ignoreId; }
+        $courseAlreadyStmt = $pdo->prepare($courseAlreadySql);
+        $courseAlreadyStmt->execute($courseAlreadyParams);
+        $isNewPreparation = ((int)$courseAlreadyStmt->fetchColumn() === 0);
+        $maxPreparations = (int)$faculty['max_preparations'];
+        if ($isNewPreparation && $currentPreparations >= $maxPreparations) {
+            json_response(false, 'Faculty preparation limit exceeded. Maximum is ' . $maxPreparations . ' unique course preparation(s) for this faculty for ' . $d['school_year'] . ' (' . $course['semester_type'] . ').', null, 422);
+        }
     }
 
     // SET logic: SET 0 is always face-to-face, so a room is required. SET 1
@@ -393,12 +401,10 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
         // judgment calls -- it is not enforced as a plotting gate.
     }
 
-    $newIsExempt = is_minor_or_lecture($d['component'], $course['category']);
-
     // Conflicts only matter within the same term -- a room/faculty/target
     // occupied at this day/time in a different school year, or a different
     // semester of the same year, is not actually double-booked.
-    $sql = 'SELECT s.*, c.category AS course_category FROM schedules s JOIN courses c ON c.id = s.course_id
+    $sql = 'SELECT s.* FROM schedules s JOIN courses c ON c.id = s.course_id
             WHERE NOT (s.end_time<=? OR s.start_time>=?) AND s.school_year=? AND c.semester_type=?';
     $params = [$start, $end, $d['school_year'], $course['semester_type']];
     if ($ignoreId) { $sql .= ' AND s.id<>?'; $params[] = $ignoreId; }
@@ -412,20 +418,22 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
         if (!schedules_share_day($row['day_of_week'], $d['day_of_week'])) continue;
 
         // The SET 1/SET 2 alternating-week exception is a PHYSICAL ROOM
-        // exception only (rule: opposite F2F/Online rotation means the room
+        // exception only (opposite F2F/Online rotation means the room
         // is free on alternating weeks). It must never be used to bypass an
         // instructor or target (Block/SPARE) double-booking -- those are
         // checked here unconditionally, regardless of which SETs are
         // involved.
-        if ((int)$row['faculty_id'] === (int)$d['faculty_id']) {
+        // A schedule with no instructor (either side) can never be an
+        // instructor conflict -- "not assigned yet" is a warning shown in the
+        // UI, not a double-booking.
+        if ($facultyId !== null && $row['faculty_id'] !== null && (int)$row['faculty_id'] === $facultyId) {
             json_response(false, 'Instructor conflict: this faculty already has a class at the selected day/time pattern.', null, 409);
         }
         if (same_target($newTarget, $row)) {
             json_response(false, 'Block conflict: this target already has a class at the selected day/time pattern.', null, 409);
         }
         if ($hasRoom && !empty($row['room_id']) && (int)$row['room_id'] === (int)$d['room_id']) {
-            $rowIsExempt = is_minor_or_lecture($row['component'], $row['course_category']);
-            if (sets_conflict($d['set_type'], $row['set_type'], $newIsExempt, $rowIsExempt)) {
+            if (sets_conflict($d['set_type'], $row['set_type'])) {
                 json_response(false, 'Room conflict: this room is already occupied at the selected day/time pattern.', null, 409);
             }
         }
@@ -450,8 +458,9 @@ function insert_schedule(PDO $pdo, array $d): int {
     $roomId = empty($d['room_id']) ? null : (int)$d['room_id'];
     $blockId = empty($d['block_id']) ? null : (int)$d['block_id'];
     $spareId = empty($d['spare_id']) ? null : (int)$d['spare_id'];
+    $facultyId = empty($d['faculty_id']) ? null : (int)$d['faculty_id'];
     $stmt = $pdo->prepare('INSERT INTO schedules(course_id,block_id,spare_id,faculty_id,room_id,component,delivery_mode,set_type,school_year,day_of_week,start_time,end_time,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
-    $stmt->execute([(int)$d['course_id'],$blockId,$spareId,(int)$d['faculty_id'],$roomId,$d['component'],$deliveryMode,$d['set_type'],$d['school_year'],$d['day_of_week'],$d['start_time'],$d['end_time'],$d['notes'] ?? null]);
+    $stmt->execute([(int)$d['course_id'],$blockId,$spareId,$facultyId,$roomId,$d['component'],$deliveryMode,$d['set_type'],$d['school_year'],$d['day_of_week'],$d['start_time'],$d['end_time'],$d['notes'] ?? null]);
     return (int)$pdo->lastInsertId();
 }
 
@@ -460,8 +469,9 @@ function update_schedule(PDO $pdo, array $d, int $id): void {
     $roomId = empty($d['room_id']) ? null : (int)$d['room_id'];
     $blockId = empty($d['block_id']) ? null : (int)$d['block_id'];
     $spareId = empty($d['spare_id']) ? null : (int)$d['spare_id'];
+    $facultyId = empty($d['faculty_id']) ? null : (int)$d['faculty_id'];
     $stmt = $pdo->prepare('UPDATE schedules SET course_id=?, block_id=?, spare_id=?, faculty_id=?, room_id=?, component=?, delivery_mode=?, set_type=?, school_year=?, day_of_week=?, start_time=?, end_time=?, notes=? WHERE id=?');
-    $stmt->execute([(int)$d['course_id'],$blockId,$spareId,(int)$d['faculty_id'],$roomId,$d['component'],$deliveryMode,$d['set_type'],$d['school_year'],$d['day_of_week'],$d['start_time'],$d['end_time'],$d['notes'] ?? null,$id]);
+    $stmt->execute([(int)$d['course_id'],$blockId,$spareId,$facultyId,$roomId,$d['component'],$deliveryMode,$d['set_type'],$d['school_year'],$d['day_of_week'],$d['start_time'],$d['end_time'],$d['notes'] ?? null,$id]);
 }
 
 /**
@@ -473,7 +483,7 @@ function update_schedule(PDO $pdo, array $d, int $id): void {
  *
  * Request body:
  *   {
- *     course_id, block_id OR spare_id, faculty_id, school_year,
+ *     course_id, block_id OR spare_id, faculty_id (optional), school_year,
  *     components: [
  *       { component: 'lecture'|'laboratory', room_id?, set_type, day_of_week, start_time, end_time, notes?, id? },
  *       ...
@@ -494,7 +504,7 @@ function update_schedule(PDO $pdo, array $d, int $id): void {
  * subject offering can never be left half-plotted by a failed save.
  */
 function save_subject_offering(PDO $pdo, array $body): array {
-    require_fields($body, ['course_id', 'faculty_id', 'school_year']);
+    require_fields($body, ['course_id', 'school_year']);
     $target = resolve_schedule_target($pdo, $body);
     $targetColumn = $target['type'] === 'block' ? 'block_id' : 'spare_id';
     $targetId = (int)$target['row']['id'];
@@ -557,10 +567,10 @@ function save_subject_offering(PDO $pdo, array $body): array {
             'course_id' => (int)$body['course_id'],
             'block_id' => $target['type'] === 'block' ? $targetId : null,
             'spare_id' => $target['type'] === 'spare' ? $targetId : null,
-            'faculty_id' => (int)$body['faculty_id'],
+            'faculty_id' => empty($body['faculty_id']) ? null : (int)$body['faculty_id'],
             'school_year' => $body['school_year'],
             'component' => $c['component'],
-            'set_type' => $c['set_type'] ?? 'set_0',
+            'set_type' => $c['set_type'] ?? (allowed_set_types((string)$c['component'], (int)$target['row']['year_level'])[0] ?? 'set_0'),
             'day_of_week' => $c['day_of_week'] ?? '',
             'start_time' => $c['start_time'] ?? '',
             'end_time' => $c['end_time'] ?? '',
@@ -624,7 +634,7 @@ try {
             JOIN courses c ON c.id=s.course_id
             LEFT JOIN blocks b ON b.id=s.block_id
             LEFT JOIN spares sp ON sp.id=s.spare_id
-            JOIN faculty f ON f.id=s.faculty_id
+            LEFT JOIN faculty f ON f.id=s.faculty_id
             LEFT JOIN rooms r ON r.id=s.room_id
             ORDER BY s.day_of_week, s.start_time")->fetchAll();
 
@@ -634,6 +644,8 @@ try {
         foreach ($rows as &$row) {
             $isSpare = $row['spare_id'] !== null;
             $row['is_spare'] = $isSpare;
+            // Lets the UI show "Instructor not assigned" without re-deriving it.
+            $row['instructor_missing'] = $row['faculty_id'] === null;
             $row['program_code'] = $isSpare ? $row['spare_program_code'] : $row['block_program_code'];
             $row['year_level'] = $isSpare ? $row['spare_year_level'] : $row['block_year_level'];
             unset($row['block_program_code'], $row['block_year_level'], $row['spare_program_code'], $row['spare_year_level']);

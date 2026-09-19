@@ -42,9 +42,35 @@ Recent activity
 
 Quick actions
 
+<<<<<<< Updated upstream
 Plot Schedule
 
 The scheduler follows this general flow:
+=======
+The conflict rule itself was corrected to match how SET 0/1/2 actually work. **Important: this rule governs ROOM conflicts only.** Instructor and section conflicts are always checked independently, at the same day/time, regardless of which SETs are involved -- the SET 1/SET 2 alternation never excuses a faculty or a section being double-booked, only a room being shared.
+- **SET 0** is always face-to-face and never alternates, so it room-conflicts with anything at the same room/time
+- **The same alternating set** (SET 1 + SET 1, or SET 2 + SET 2) always lands on the same week, so it room-conflicts
+- **SET 1 + SET 2** are opposite rotations and are NOT physically simultaneous, so they do **not** room-conflict
+
+### Which SET a component may use (2026-09-19)
+
+- **Laboratory is always SET 0.** Only labs use SET 0.
+- **Lecture is never SET 0.** It uses its year level's alternating SET (1st/4th year: SET 1, 2nd/3rd year: SET 2). Pure-lecture courses (no lab) follow the same rule.
+- The old "lecture/minor courses still conflict SET 1 vs SET 2" exemption was removed, because lectures are now the components that rotate.
+
+This lives in `allowed_set_types()` and `sets_conflict()` in `api/schedules.php` (authoritative) and is mirrored in `assets/js/app.js` (`allowedSetTypes()` / `setsConflict()`). If you have older data, run `database/migration_set_by_component.sql` once.
+
+## Instructor Is Optional While Plotting (2026-09-19)
+
+Plotting usually happens before final instructor assignment, so a schedule can now be saved **without** an instructor.
+
+- **No instructor** -> saves normally, shown with an amber "Not assigned" warning (schedule tables, timetable cards, the Course Offering table, and a Dashboard "Needs Attention" item). The Schedules filter also has an "Instructor not assigned" option.
+- **Instructor assigned, no conflict** -> normal.
+- **Instructor double-booked** -> still a real conflict (red) and still blocks the save. A missing instructor is never treated as a conflict, and two unassigned schedules never conflict with each other.
+- Every instructor-specific rule (eligibility for the course, active status, max preparations, Lecture/Lab same-instructor, double-booking) runs only once an instructor is chosen, so assigning one later is when it gets checked.
+
+Run `database/migration_instructor_optional.sql` once if you already had a copy of the database (`schedules.faculty_id` becomes nullable). Fresh installs of `ics_plotting.sql` already include it.
+>>>>>>> Stashed changes
 
 Academic Year → Year Level → Block/SPARE → Course Offering → Component → Schedule Details
 

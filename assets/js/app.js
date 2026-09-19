@@ -10,6 +10,8 @@ const editing = { courses: null, blocks: null, faculty: null, rooms: null, sched
 
 // Current schedule list filter selections. `target` is a composite value
 // like "block:12" or "spare:3" (or '' for no filter) -- see parseTargetValue().
+/** Value of the Faculty filter that shows only schedules with no instructor yet. */
+const NO_INSTRUCTOR_FILTER = 'none';
 const scheduleFilters = { schoolYear: '', year: '', semester: '', target: '', faculty: '' };
 let coursesYearFilter = '';
 
@@ -410,36 +412,50 @@ function fillSelect(id, data, labelFn, value = 'id', first = 'Select') {
   $(id).innerHTML = `<option value="">${escapeHtml(first)}</option>` + data.map((x) => `<option value="${x[value]}">${escapeHtml(labelFn(x))}</option>`).join('');
 }
 
+/**
+ * "Instructor not assigned" is a WARNING state, not a conflict: a schedule
+ * without an instructor is valid and saveable (plotting usually happens
+ * before final instructor assignment), it just gets this indicator. Real
+ * instructor conflicts (same instructor double-booked) are a separate,
+ * red issue handled by findScheduleConflicts().
+ */
+const INSTRUCTOR_MISSING_HTML = '<span class="instructor-missing" title="No instructor assigned yet -- you can still save this schedule and assign one later."><i class="fas fa-triangle-exclamation"></i> Not assigned</span>';
+
+function instructorCellHtml(s) {
+  return s.faculty_id ? escapeHtml(s.faculty_name) : INSTRUCTOR_MISSING_HTML;
+}
+
 const YEAR_LEVEL_LABELS = { 1: '1st Year', 2: '2nd Year', 3: '3rd Year', 4: '4th Year' };
 const SEMESTER_LABELS = { first_semester: 'First Semester', second_semester: 'Second Semester', summer: 'Summer' };
 
 /**
- * Mirrors ALLOWED_SET_TYPES_BY_YEAR_LEVEL in api/schedules.php: 1st/4th year
- * targets (Block or SPARE) rotate on SET 1, 2nd/3rd year rotate on SET 2,
- * and every year level can use SET 0. This only hides the invalid choices
- * earlier in the UI -- the backend remains the authoritative check.
+ * Mirrors allowed_set_types() in api/schedules.php. A Laboratory is always
+ * SET 0 (always face-to-face); only labs use SET 0. A Lecture is never
+ * SET 0 -- it uses its year level's alternating SET (1st/4th year: SET 1,
+ * 2nd/3rd year: SET 2), including pure-lecture courses that have no lab.
+ * This only limits the choices earlier in the UI -- the backend remains the
+ * authoritative check.
  */
-const ALLOWED_SET_TYPES_BY_YEAR_LEVEL = {
-  1: ['set_0', 'set_1'],
-  2: ['set_0', 'set_2'],
-  3: ['set_0', 'set_2'],
-  4: ['set_0', 'set_1'],
-};
+const ALTERNATING_SET_BY_YEAR_LEVEL = { 1: 'set_1', 2: 'set_2', 3: 'set_2', 4: 'set_1' };
 
-/** Shows only the SET options valid for the selected course's year level in one component's Set Type dropdown, and resets the selection if it's no longer valid. */
+function allowedSetTypes(component, yearLevel) {
+  if (component === 'laboratory') return ['set_0'];
+  const alternating = ALTERNATING_SET_BY_YEAR_LEVEL[Number(yearLevel)];
+  return alternating ? [alternating] : ['set_1', 'set_2'];
+}
+
+/** Shows only the SET options valid for this component (and the selected course's year level) in its Set Type dropdown, and resets the selection if it's no longer valid. */
 function updateSetTypeOptions(component) {
   const course = getSelectedCourse();
   const select = $('setType_' + component);
-  const allowed = course
-    ? (ALLOWED_SET_TYPES_BY_YEAR_LEVEL[Number(course.year_level)] || ['set_0'])
-    : ['set_0', 'set_1', 'set_2'];
+  const allowed = allowedSetTypes(component, course ? course.year_level : null);
   Array.from(select.options).forEach((opt) => {
     const isAllowed = allowed.includes(opt.value);
     opt.hidden = !isAllowed;
     opt.disabled = !isAllowed;
   });
   if (!allowed.includes(select.value)) {
-    select.value = allowed.includes('set_0') ? 'set_0' : allowed[0];
+    select.value = allowed[0];
   }
 }
 
@@ -766,7 +782,7 @@ function renderOfferingRow(codeLabel, row) {
       <td>${escapeHtml(course.course_code)}</td>
       <td>${escapeHtml(course.course_title)}</td>
       <td>${component === 'laboratory' ? 'LAB' : 'LEC'}</td>
-      <td colspan="3">Not yet scheduled \u2014 click to plot</td>
+      <td colspan="4">Not yet scheduled \u2014 click to plot</td>
       <td><i class="fas fa-plus"></i></td>
     </tr>`;
   }
@@ -779,6 +795,7 @@ function renderOfferingRow(codeLabel, row) {
     <td class="offering-cell-editable" data-field="day">${escapeHtml(formatDayPattern(existing.day_of_week))}</td>
     <td class="offering-cell-editable" data-field="time">${formatTimeDisplay(existing.start_time.slice(0, 5))}-${formatTimeDisplay(existing.end_time.slice(0, 5))}</td>
     <td class="offering-cell-editable" data-field="room">${escapeHtml(existing.room_name || 'No room')}</td>
+    <td>${instructorCellHtml(existing)}</td>
     <td><i class="fas fa-pen"></i></td>
   </tr>`;
 }
@@ -806,7 +823,7 @@ function renderOfferingOverview() {
 
   let codeCounter = 1;
   const codePrefix = { 1: 'A', 2: 'B', 3: 'C', 4: 'D' }[yearLevel] || 'X';
-  const cols = '<tr><th>Code</th><th>Set</th><th>Course Code</th><th>Course Title</th><th>Type</th><th>Day</th><th>Time</th><th>Room</th><th></th></tr>';
+  const cols = '<tr><th>Code</th><th>Set</th><th>Course Code</th><th>Course Title</th><th>Type</th><th>Day</th><th>Time</th><th>Room</th><th>Instructor</th><th></th></tr>';
 
   // Work out, per pure-lecture course IN THIS SEMESTER, which of THIS year
   // level's actual Blocks need their own dedicated Lecture section vs
@@ -850,7 +867,7 @@ function renderOfferingOverview() {
     html += `
       <div class="offering-block-section">
         <div class="offering-block-title">${escapeHtml(programCode)}<br>${escapeHtml(yearLabel)} Students (${escapeHtml(block.block_name.toUpperCase())}) &mdash; ${escapeHtml(semesterLabel)}</div>
-        <table class="offering-table"><thead>${cols}</thead><tbody>${rowsHtml || `<tr><td colspan="9" class="offering-empty">No ${escapeHtml(semesterLabel)} courses assigned to this block yet.</td></tr>`}</tbody></table>
+        <table class="offering-table"><thead>${cols}</thead><tbody>${rowsHtml || `<tr><td colspan="10" class="offering-empty">No ${escapeHtml(semesterLabel)} courses assigned to this block yet.</td></tr>`}</tbody></table>
       </div>`;
   });
 
@@ -948,7 +965,7 @@ function openQuickEditModal(field, scheduleId) {
 
   if (field === 'set') {
     const course = state.courses.find((c) => Number(c.id) === Number(existing.course_id));
-    const allowed = ALLOWED_SET_TYPES_BY_YEAR_LEVEL[Number(course ? course.year_level : existing.year_level)] || ['set_0'];
+    const allowed = allowedSetTypes(existing.component, course ? course.year_level : existing.year_level);
     body.innerHTML = `<div class="form-group full-width">
       <label for="qeSetType"><i class="fas fa-cogs"></i> Set Type</label>
       <select id="qeSetType">${allowed.map((v) => `<option value="${v}">${escapeHtml(QUICK_EDIT_SET_TYPE_LABELS[v] || v)}</option>`).join('')}</select>
@@ -1200,7 +1217,7 @@ function scanSystemConflicts() {
     if (!s.day_of_week || !s.start_time || !s.end_time) continue;
     const conflicts = findScheduleConflicts(s.day_of_week, s.start_time.slice(0, 5), s.end_time.slice(0, 5), {
       blockId: s.block_id, spareId: s.spare_id, facultyId: s.faculty_id, roomId: s.room_id, ignoreId: s.id,
-      setType: s.set_type, component: s.component, category: s.category,
+      setType: s.set_type,
       schoolYear: s.school_year, semesterType: s.semester_type,
     });
     if (!conflicts.length) continue;
@@ -1218,6 +1235,7 @@ function scanSystemConflicts() {
 function facultyLoadStats() {
   const preps = new Map();
   for (const s of state.schedules) {
+    if (!s.faculty_id) continue;
     if (!preps.has(s.faculty_id)) preps.set(s.faculty_id, new Set());
     preps.get(s.faculty_id).add(s.course_id);
   }
@@ -1277,6 +1295,7 @@ function renderNeedsAttention() {
   const conflicts = scanSystemConflicts();
   const unassignedCourses = state.courses.filter((c) => !state.schedules.some((s) => Number(s.course_id) === Number(c.id))).length;
   const load = facultyLoadStats();
+  const noInstructor = state.schedules.filter((s) => !s.faculty_id).length;
 
   const items = [];
   if (conflicts.room > 0) {
@@ -1287,6 +1306,9 @@ function renderNeedsAttention() {
   }
   if (conflicts.block > 0) {
     items.push({ icon: 'fa-layer-group', tone: '', title: `${conflicts.block} Block/SPARE Conflict${conflicts.block === 1 ? '' : 's'}`, sub: 'A block or SPARE group has overlapping classes', view: 'schedules' });
+  }
+  if (noInstructor > 0) {
+    items.push({ icon: 'fa-user-slash', tone: 'warn-amber', title: `${noInstructor} Schedule${noInstructor === 1 ? '' : 's'} Without Instructor`, sub: 'Warning only -- assign an instructor when ready', view: 'schedules' });
   }
   if (unassignedCourses > 0) {
     items.push({ icon: 'fa-clipboard-question', tone: 'warn-amber', title: `${unassignedCourses} Unplotted Course${unassignedCourses === 1 ? '' : 's'}`, sub: 'Not yet plotted into any schedule', view: 'courses' });
@@ -1451,13 +1473,14 @@ function renderFilterOptions() {
   const spareOptions = sparesForFilter.map((sp) => `<option value="spare:${sp.id}">${escapeHtml(spareLabel(sp))}</option>`).join('');
   $('filterTarget').innerHTML = `<option value="">All Blocks</option>${blockOptions}${spareOptions}`;
   fillSelect('filterFaculty', state.faculty, (f) => f.faculty_name, 'id', 'All Faculty');
+  $('filterFaculty').insertAdjacentHTML('beforeend', `<option value="${NO_INSTRUCTOR_FILTER}">\u26a0 Instructor not assigned</option>`);
   const schoolYears = [...new Set(state.schedules.map((s) => s.school_year))].sort().reverse();
   $('filterSchoolYear').innerHTML = '<option value="">All Academic Years</option>' + schoolYears.map((sy) => `<option value="${escapeHtml(sy)}">${escapeHtml(sy)}</option>`).join('');
   if (schoolYears.includes(prevSchoolYear)) $('filterSchoolYear').value = prevSchoolYear;
   const targetStillValid = [...$('filterTarget').options].some((o) => o.value === prevTarget);
   $('filterTarget').value = targetStillValid ? prevTarget : '';
   if (!targetStillValid) scheduleFilters.target = '';
-  if (state.faculty.some((f) => String(f.id) === prevFaculty)) $('filterFaculty').value = prevFaculty;
+  if (prevFaculty === NO_INSTRUCTOR_FILTER || state.faculty.some((f) => String(f.id) === prevFaculty)) $('filterFaculty').value = prevFaculty;
 }
 
 /* =====================================================
@@ -1692,7 +1715,7 @@ function renderTtBlock(entry, mode) {
   const widthPct = 100 / laneCount;
   const leftPct = lane * widthPct;
 
-  const subLabel = mode === 'block' ? s.faculty_name : scheduleTargetLabel(s);
+  const subLabel = mode === 'block' ? (s.faculty_id ? s.faculty_name : '\u26a0 Instructor not assigned') : scheduleTargetLabel(s);
   const modality = scheduleModality(s);
   const setInfo = SET_DISPLAY[s.set_type] || SET_DISPLAY.set_0;
   const modalityLine = modality.label === 'F2F'
@@ -1949,7 +1972,7 @@ function componentSummaryText(schedule) {
   if (!schedule) return '';
   const fac = state.faculty.find((f) => Number(f.id) === Number(schedule.faculty_id));
   const room = schedule.room_name || 'No room selected';
-  return `${formatDayPattern(schedule.day_of_week)} ${formatTimeDisplay(schedule.start_time.slice(0, 5))}-${formatTimeDisplay(schedule.end_time.slice(0, 5))} \u00b7 ${room}` + (fac ? ` \u00b7 ${fac.faculty_name}` : '');
+  return `${formatDayPattern(schedule.day_of_week)} ${formatTimeDisplay(schedule.start_time.slice(0, 5))}-${formatTimeDisplay(schedule.end_time.slice(0, 5))} \u00b7 ${room}` + (fac ? ` \u00b7 ${fac.faculty_name}` : ' \u00b7 \u26a0 No instructor yet');
 }
 
 function hasEditableComponent() {
@@ -2066,21 +2089,25 @@ function toggleFacultyLockBadge(show) {
 function updateFacultyOptions() {
   const course = getSelectedCourse();
   const hint = $('facultyHint');
+  const noInstructorLabel = 'No instructor yet (assign later)';
+
+  // Instructor is OPTIONAL -- every branch below leaves the field blank-able
+  // and never blocks saving. "Not assigned" is only a warning.
   if (!course) {
     $('scheduleFaculty').innerHTML = '<option value="">Select course first</option>';
     $('scheduleFaculty').disabled = true;
     $('scheduleFaculty').title = 'Select a course first.';
-    if (hint) hint.textContent = '\ud83d\udd12 Select a course first to choose an eligible faculty.';
+    if (hint) hint.textContent = '\ud83d\udd12 Select a course first. Instructor is optional.';
     toggleFacultyLockBadge(false);
     return;
   }
 
   const qualifiedFaculty = getQualifiedFacultyForCourse(course.id);
   if (!qualifiedFaculty.length) {
-    $('scheduleFaculty').innerHTML = '<option value="">No assigned faculty for this course</option>';
+    $('scheduleFaculty').innerHTML = `<option value="">${noInstructorLabel}</option>`;
     $('scheduleFaculty').disabled = true;
-    $('scheduleFaculty').title = 'Assign a faculty member to this course first (Faculty Course Assignments).';
-    if (hint) hint.textContent = '\u26a0 No faculty assigned to this course yet -- add one in Faculty Course Assignments first.';
+    $('scheduleFaculty').title = 'No faculty is assigned to this course yet (Faculty Course Assignments).';
+    if (hint) hint.textContent = '\u26a0 Instructor not assigned -- you can still save this schedule. Assign a faculty in Faculty Course Assignments to pick one later.';
     toggleFacultyLockBadge(false);
     return;
   }
@@ -2088,11 +2115,12 @@ function updateFacultyOptions() {
   const target = getSelectedTarget();
   const schoolYear = $('scheduleSchoolYear').value;
   const sibling = getSiblingScheduleForCourseTarget(course.id, target, schoolYear, currentEditingScheduleIds());
-  const inheritedFacultyId = sibling ? Number(sibling.faculty_id) : null;
+  // A sibling with no instructor has nothing to inherit.
+  const inheritedFacultyId = sibling && sibling.faculty_id ? Number(sibling.faculty_id) : null;
   const inheritedIsQualified = inheritedFacultyId && qualifiedFaculty.some((f) => Number(f.id) === inheritedFacultyId);
 
   if (sibling && inheritedIsQualified) {
-    fillSelect('scheduleFaculty', qualifiedFaculty, (f) => f.faculty_name + (Number(f.is_active) === 0 ? ' (Inactive)' : ''), 'id', 'Select assigned faculty');
+    fillSelect('scheduleFaculty', qualifiedFaculty, (f) => f.faculty_name + (Number(f.is_active) === 0 ? ' (Inactive)' : ''), 'id', noInstructorLabel);
     $('scheduleFaculty').value = String(inheritedFacultyId);
     $('scheduleFaculty').disabled = true;
     $('scheduleFaculty').title = `Instructor inherited from the existing ${course.course_code} schedule for this target -- Lecture and Laboratory must share the same instructor.`;
@@ -2103,14 +2131,14 @@ function updateFacultyOptions() {
   }
 
   const previousValue = $('scheduleFaculty').value;
-  fillSelect('scheduleFaculty', qualifiedFaculty, (f) => f.faculty_name + (Number(f.is_active) === 0 ? ' (Inactive)' : ''), 'id', 'Select assigned faculty');
+  fillSelect('scheduleFaculty', qualifiedFaculty, (f) => f.faculty_name + (Number(f.is_active) === 0 ? ' (Inactive)' : ''), 'id', noInstructorLabel);
   $('scheduleFaculty').disabled = false;
   $('scheduleFaculty').title = '';
   if (previousValue && qualifiedFaculty.some((f) => String(f.id) === previousValue)) {
     $('scheduleFaculty').value = previousValue;
   }
   toggleFacultyLockBadge(false);
-  if (hint) hint.textContent = `\u2713 ${qualifiedFaculty.length} eligible faculty member${qualifiedFaculty.length === 1 ? '' : 's'} found.`;
+  if (hint) hint.textContent = `Optional -- ${qualifiedFaculty.length} eligible faculty member${qualifiedFaculty.length === 1 ? '' : 's'} found. Leave blank to assign later (a warning is shown until you do).`;
 }
 
 function updateRoomOptions(component) {
@@ -2125,9 +2153,9 @@ function updateRoomOptions(component) {
 }
 
 const SET_TYPE_HINTS = {
-  set_0: 'SET 0: 🏫 Always F2F, every meeting. A room is required.',
-  set_1: 'SET 1: 🏫 F2F / Online Rotation -- starts F2F, then alternates continuously (F2F → Online → F2F → ...). May share the same room/time as SET 2 (won\'t room-conflict with it), but still conflicts with any lecture or minor-course schedule, since those meet every week -- and instructor/block conflicts against SET 2 are always checked regardless.',
-  set_2: 'SET 2: 💻 Online / F2F Rotation -- starts Online, then alternates continuously (Online → F2F → Online → ...). May share the same room/time as SET 1 (won\'t room-conflict with it), but still conflicts with any lecture or minor-course schedule, since those meet every week -- and instructor/block conflicts against SET 1 are always checked regardless.',
+  set_0: 'SET 0: 🏫 Always F2F, every meeting -- used by Laboratory components only. A room is required.',
+  set_1: 'SET 1: 🏫 F2F / Online Rotation -- starts F2F, then alternates continuously (F2F → Online → F2F → ...). Used by Lecture components (1st/4th year). May share the same room/time as SET 2 (won\'t room-conflict with it), but conflicts with SET 0 and other SET 1 -- and instructor/block conflicts against SET 2 are always checked regardless.',
+  set_2: 'SET 2: 💻 Online / F2F Rotation -- starts Online, then alternates continuously (Online → F2F → Online → ...). Used by Lecture components (2nd/3rd year). May share the same room/time as SET 1 (won\'t room-conflict with it), but conflicts with SET 0 and other SET 2 -- and instructor/block conflicts against SET 1 are always checked regardless.',
 };
 
 const ROOM_HINTS = {
@@ -2180,16 +2208,10 @@ function daysOverlap(patternA, patternB) {
   return a.some((d) => b.includes(d));
 }
 
-const NON_ALTERNATING_MINOR_CATEGORIES = ['ge', 'pathfit', 'nstp', 'luxmundi'];
-
-function isMinorOrLecture(component, category) {
-  return component === 'lecture' || NON_ALTERNATING_MINOR_CATEGORIES.includes(category);
-}
-
-function setsConflict(setA, setB, exemptA, exemptB) {
+/** Mirrors sets_conflict() in api/schedules.php (room conflicts only): SET 0 never alternates so it conflicts with anything; the same alternating set conflicts; SET 1 + SET 2 don't. */
+function setsConflict(setA, setB) {
   if (setA === 'set_0' || setB === 'set_0') return true;
-  if (setA === setB) return true;
-  return exemptA || exemptB;
+  return setA === setB;
 }
 
 function timeStrToMinutes(t) {
@@ -2280,9 +2302,8 @@ function sameTarget(a, b) {
   return false;
 }
 
-function findScheduleConflicts(dayPattern, start, end, { blockId, spareId, facultyId, roomId, ignoreId, setType, component, category, schoolYear, semesterType }) {
+function findScheduleConflicts(dayPattern, start, end, { blockId, spareId, facultyId, roomId, ignoreId, setType, schoolYear, semesterType }) {
   if (!dayPattern || !start || !end) return [];
-  const newIsExempt = isMinorOrLecture(component, category);
   const newTarget = { blockId, spareId };
   const conflicts = [];
   for (const s of state.schedules) {
@@ -2300,8 +2321,7 @@ function findScheduleConflicts(dayPattern, start, end, { blockId, spareId, facul
       conflicts.push({ type: 'Block', name: scheduleTargetLabel(s), timeLabel });
     }
     if (roomId && Number(s.room_id) === Number(roomId)) {
-      const rowIsExempt = isMinorOrLecture(s.component, s.category);
-      if (setsConflict(setType, s.set_type, newIsExempt, rowIsExempt)) {
+      if (setsConflict(setType, s.set_type)) {
         conflicts.push({ type: 'Room', name: s.room_name, timeLabel });
       }
     }
@@ -2508,8 +2528,6 @@ function checkLiveConflict(component) {
     roomId: $('scheduleRoom_' + component).value,
     ignoreId: existingComponentId(component),
     setType: $('setType_' + component).value,
-    component,
-    category: (course || {}).category,
     schoolYear: $('scheduleSchoolYear').value,
     semesterType: (course || {}).semester_type,
   };
@@ -2543,7 +2561,8 @@ function filteredSchedules() {
     if (scheduleFilters.year && String(s.year_level) !== scheduleFilters.year) return false;
     if (scheduleFilters.semester && s.semester_type !== scheduleFilters.semester) return false;
     if (scheduleFilters.target && targetValueForSchedule(s) !== scheduleFilters.target) return false;
-    if (scheduleFilters.faculty && String(s.faculty_id) !== scheduleFilters.faculty) return false;
+    if (scheduleFilters.faculty === NO_INSTRUCTOR_FILTER) { if (s.faculty_id) return false; }
+    else if (scheduleFilters.faculty && String(s.faculty_id) !== scheduleFilters.faculty) return false;
     return true;
   });
 }
@@ -2627,7 +2646,7 @@ const SCHEDULES_TABLE_COLUMNS = [
   { key: 'course_code', label: 'Course', searchValue: (s) => `${s.course_code} ${s.course_title}`, render: (s) => `${escapeHtml(s.course_code)}<br><small>${escapeHtml(s.course_title)}</small>` },
   { key: 'component', label: 'Component', render: (s) => `<span class="badge ${s.component === 'laboratory' ? 'lab' : 'lec'}">${escapeHtml(s.component)}</span>` },
   { key: 'block_name', label: 'Block', searchValue: (s) => scheduleTargetLabel(s), render: (s) => escapeHtml(s.is_spare || s.spare_id ? `${s.program_code} ${s.year_level} - SPARE` : `${s.program_code} ${s.year_level} - ${s.block_name}`) },
-  { key: 'faculty_name', label: 'Faculty' },
+  { key: 'faculty_name', label: 'Faculty', render: (s) => instructorCellHtml(s) },
   { key: 'set_type', label: 'Set' },
   { key: 'modality', label: 'Modality', searchValue: (s) => scheduleModality(s).label, render: (s) => {
       const m = scheduleModality(s);
@@ -2810,7 +2829,7 @@ function setDayPatternUI(component, dayOfWeek) {
 }
 
 function resetComponentFields(component) {
-  $('setType_' + component).value = 'set_0';
+  updateSetTypeOptions(component);
   setDayPatternUI(component, 'MWF');
   $('scheduleDuration_' + component).value = '60';
   $('notes_' + component).value = '';
@@ -2826,6 +2845,8 @@ function resetComponentFields(component) {
 
 function prefillComponentFields(component, schedule) {
   $('setType_' + component).value = schedule.set_type;
+  // Older rows saved before the component-based SET rule may hold a SET that's no longer valid for this component; this snaps the dropdown to the valid one so the next Save fixes it.
+  updateSetTypeOptions(component);
   setDayPatternUI(component, schedule.day_of_week);
   $('scheduleDuration_' + component).value = 'custom';
   updateEndTimeFromDuration(component);
@@ -3043,7 +3064,7 @@ const validationRules = {
   scheduleSchoolYear: { required: true, pattern: /^\d{4}-\d{4}$/, label: 'School year', message: 'School year must be in the format YYYY-YYYY (e.g. 2026-2027).' },
   scheduleCourse: { required: true, label: 'Course' },
   scheduleTarget: { required: true, label: 'Block' },
-  scheduleFaculty: { required: true, label: 'Faculty' },
+  scheduleFaculty: { required: false, label: 'Instructor' },
   startTime_lecture: { required: true, label: 'Lecture start time' },
   endTime_lecture: { required: true, label: 'Lecture end time' },
   startTime_laboratory: { required: true, label: 'Laboratory start time' },

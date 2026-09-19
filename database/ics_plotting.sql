@@ -154,7 +154,7 @@ CREATE TABLE schedules (
   target_ref VARCHAR(20) GENERATED ALWAYS AS (
     CASE WHEN block_id IS NOT NULL THEN CONCAT('B', block_id) ELSE CONCAT('S', spare_id) END
   ) STORED,
-  faculty_id INT NOT NULL,
+  faculty_id INT NULL, -- optional: NULL = instructor not assigned yet (a warning, not a conflict)
   room_id INT NULL,
   component ENUM('lecture','laboratory') NOT NULL,
   set_type ENUM('set_0','set_1','set_2') NOT NULL DEFAULT 'set_0',
