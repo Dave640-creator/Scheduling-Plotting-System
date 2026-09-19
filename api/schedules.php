@@ -38,17 +38,24 @@ const ALTERNATING_SET_BY_YEAR_LEVEL = [
 const SET_TYPE_LABELS = ['set_0' => 'SET 0', 'set_1' => 'SET 1', 'set_2' => 'SET 2'];
 
 /**
- * The one SET rule of this system, by component:
- * - LABORATORY is always SET 0 (always face-to-face). Only labs use SET 0.
- * - LECTURE is never SET 0. It uses the alternating SET of its target's
- *   year level (SET 1 for 1st/4th year, SET 2 for 2nd/3rd year). This is
- *   also true for pure-lecture courses (no lab) -- they are never SET 0.
- * Returns the list of SET types that are valid for that component + year.
+ * The SET a course starts with (the DEFAULT only -- the scheduler can change it):
+ * - LABORATORY defaults to SET 0 (always face-to-face).
+ * - LECTURE defaults to the alternating SET of its target's year level
+ *   (SET 1 for 1st/4th year, SET 2 for 2nd/3rd year).
+ * Used to prefill the SET when none is submitted.
+ */
+function default_set_type(string $component, int $yearLevel): string {
+    if ($component === 'laboratory') return 'set_0';
+    return ALTERNATING_SET_BY_YEAR_LEVEL[$yearLevel] ?? 'set_1';
+}
+
+/**
+ * Every course can be set to SET 0, SET 1 or SET 2, whatever its component
+ * or year level -- the scheduler picks per course. (The year-level/component
+ * rule above is only the default, no longer a restriction.)
  */
 function allowed_set_types(string $component, int $yearLevel): array {
-    if ($component === 'laboratory') return ['set_0'];
-    $alternating = ALTERNATING_SET_BY_YEAR_LEVEL[$yearLevel] ?? null;
-    return $alternating ? [$alternating] : [];
+    return array_keys(SET_TYPE_LABELS);
 }
 
 /**
@@ -188,19 +195,13 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
         }
     }
 
-    // Component + year-level -> allowed SET type validation. Enforced in
-    // the backend regardless of what the frontend hides, since a direct API
-    // call (or stale UI state) must never be able to plot an invalid
-    // SET/component combination: labs are always SET 0, lectures are never
-    // SET 0 (see allowed_set_types()).
+    // SET validation. Any course may use SET 0, SET 1 or SET 2 (the scheduler
+    // chooses per course); the backend still rejects any other value, since
+    // a direct API call must never be able to store an unknown SET.
     $allowedSetTypes = allowed_set_types((string)$d['component'], $targetYearLevel);
     if (!in_array($d['set_type'], $allowedSetTypes, true)) {
-        $submittedLabel = SET_TYPE_LABELS[$d['set_type']] ?? $d['set_type'];
-        $allowedLabels = implode(' or ', array_map(fn($s) => SET_TYPE_LABELS[$s] ?? $s, $allowedSetTypes));
-        $message = $d['component'] === 'laboratory'
-            ? 'Invalid SET: a Laboratory is always SET 0 (face-to-face). "' . $submittedLabel . '" is not allowed.'
-            : 'Invalid SET: a Lecture is never SET 0. Year ' . $targetYearLevel . ' lectures use ' . $allowedLabels . '. "' . $submittedLabel . '" is not allowed.';
-        json_response(false, $message, null, 422);
+        $allowedLabels = implode(', ', array_map(fn($s) => SET_TYPE_LABELS[$s] ?? $s, $allowedSetTypes));
+        json_response(false, 'Invalid SET: "' . $d['set_type'] . '". Choose one of: ' . $allowedLabels . '.', null, 422);
     }
 
     if ($d['component'] === 'lecture' && (float)$course['lec_units'] <= 0) {
@@ -570,7 +571,7 @@ function save_subject_offering(PDO $pdo, array $body): array {
             'faculty_id' => empty($body['faculty_id']) ? null : (int)$body['faculty_id'],
             'school_year' => $body['school_year'],
             'component' => $c['component'],
-            'set_type' => $c['set_type'] ?? (allowed_set_types((string)$c['component'], (int)$target['row']['year_level'])[0] ?? 'set_0'),
+            'set_type' => $c['set_type'] ?? default_set_type((string)$c['component'], (int)$target['row']['year_level']),
             'day_of_week' => $c['day_of_week'] ?? '',
             'start_time' => $c['start_time'] ?? '',
             'end_time' => $c['end_time'] ?? '',

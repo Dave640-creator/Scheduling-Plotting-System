@@ -1,3 +1,5 @@
+-- NOTE: SETs are now chosen per course (any of SET 0/1/2). Do NOT run this
+-- file anymore -- it would overwrite the SETs the scheduler picked.
 -- SET rule by component (2026-09-19)
 -- Laboratory  -> always SET 0 (face-to-face)
 -- Lecture     -> never SET 0; uses its year level's alternating SET

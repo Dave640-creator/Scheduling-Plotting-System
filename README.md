@@ -52,13 +52,13 @@ The conflict rule itself was corrected to match how SET 0/1/2 actually work. **I
 - **The same alternating set** (SET 1 + SET 1, or SET 2 + SET 2) always lands on the same week, so it room-conflicts
 - **SET 1 + SET 2** are opposite rotations and are NOT physically simultaneous, so they do **not** room-conflict
 
-### Which SET a component may use (2026-09-19)
+### Which SET a course uses
 
-- **Laboratory is always SET 0.** Only labs use SET 0.
-- **Lecture is never SET 0.** It uses its year level's alternating SET (1st/4th year: SET 1, 2nd/3rd year: SET 2). Pure-lecture courses (no lab) follow the same rule.
-- The old "lecture/minor courses still conflict SET 1 vs SET 2" exemption was removed, because lectures are now the components that rotate.
+- **Every course can be SET 0, SET 1 or SET 2, at any year level.** The scheduler picks the SET per course (Plot Schedule form, or the Set cell in the Course Offering table).
+- The SET a course starts with is only a **default**: Laboratory = SET 0; Lecture = SET 1 for 1st/4th year, SET 2 for 2nd/3rd year. It is not a restriction.
+- The room-conflict rule (`sets_conflict()`) is unchanged.
 
-This lives in `allowed_set_types()` and `sets_conflict()` in `api/schedules.php` (authoritative) and is mirrored in `assets/js/app.js` (`allowedSetTypes()` / `setsConflict()`). If you have older data, run `database/migration_set_by_component.sql` once.
+The default lives in `default_set_type()` in `api/schedules.php` (authoritative; `allowed_set_types()` now returns all three) and is mirrored in `assets/js/app.js` (`defaultSetType()` / `setsConflict()`). `database/migration_set_by_component.sql` is a one-time data fix for the old locked rule -- do NOT run it now, it would overwrite the SETs you chose.
 
 ## Instructor Is Optional While Plotting (2026-09-19)
 
@@ -348,27 +348,29 @@ SET 1 — alternating hybrid rotation
 
 SET 2 — alternating hybrid rotation
 
-SET availability depends on year level:
+Any course can use any SET, at any year level. The default when plotting:
 
 Year Level
 
-Allowed SET Types
+Default SET (Lecture)
 
 1st Year
 
-SET 0, SET 1
+SET 1
 
 2nd Year
 
-SET 0, SET 2
+SET 2
 
 3rd Year
 
-SET 0, SET 2
+SET 2
 
 4th Year
 
-SET 0, SET 1
+SET 1
+
+Laboratory defaults to SET 0. All three SETs stay selectable for every course.
 
 SET 1 and SET 2 are hybrid rotations, not permanently online classes. They still have face-to-face weeks.
 

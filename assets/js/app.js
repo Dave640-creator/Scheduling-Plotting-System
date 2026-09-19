@@ -429,34 +429,34 @@ const YEAR_LEVEL_LABELS = { 1: '1st Year', 2: '2nd Year', 3: '3rd Year', 4: '4th
 const SEMESTER_LABELS = { first_semester: 'First Semester', second_semester: 'Second Semester', summer: 'Summer' };
 
 /**
- * Mirrors allowed_set_types() in api/schedules.php. A Laboratory is always
- * SET 0 (always face-to-face); only labs use SET 0. A Lecture is never
- * SET 0 -- it uses its year level's alternating SET (1st/4th year: SET 1,
- * 2nd/3rd year: SET 2), including pure-lecture courses that have no lab.
- * This only limits the choices earlier in the UI -- the backend remains the
+ * Mirrors default_set_type() / allowed_set_types() in api/schedules.php.
+ * Every course can be SET 0, SET 1 or SET 2 -- the scheduler chooses per
+ * course, for any year level. The component/year-level rule below is only
+ * the DEFAULT a course starts with (Laboratory: SET 0; Lecture: SET 1 for
+ * 1st/4th year, SET 2 for 2nd/3rd year). The backend remains the
  * authoritative check.
  */
 const ALTERNATING_SET_BY_YEAR_LEVEL = { 1: 'set_1', 2: 'set_2', 3: 'set_2', 4: 'set_1' };
+const ALL_SET_TYPES = ['set_0', 'set_1', 'set_2'];
 
-function allowedSetTypes(component, yearLevel) {
-  if (component === 'laboratory') return ['set_0'];
-  const alternating = ALTERNATING_SET_BY_YEAR_LEVEL[Number(yearLevel)];
-  return alternating ? [alternating] : ['set_1', 'set_2'];
+function defaultSetType(component, yearLevel) {
+  if (component === 'laboratory') return 'set_0';
+  return ALTERNATING_SET_BY_YEAR_LEVEL[Number(yearLevel)] || 'set_1';
 }
 
-/** Shows only the SET options valid for this component (and the selected course's year level) in its Set Type dropdown, and resets the selection if it's no longer valid. */
+function allowedSetTypes(component, yearLevel) {
+  return ALL_SET_TYPES;
+}
+
+/** Makes all three SET options selectable in this component's Set Type dropdown and resets the selection to the course's default SET (the scheduler can then change it). */
 function updateSetTypeOptions(component) {
   const course = getSelectedCourse();
   const select = $('setType_' + component);
-  const allowed = allowedSetTypes(component, course ? course.year_level : null);
   Array.from(select.options).forEach((opt) => {
-    const isAllowed = allowed.includes(opt.value);
-    opt.hidden = !isAllowed;
-    opt.disabled = !isAllowed;
+    opt.hidden = false;
+    opt.disabled = false;
   });
-  if (!allowed.includes(select.value)) {
-    select.value = allowed[0];
-  }
+  select.value = defaultSetType(component, course ? course.year_level : null);
 }
 
 function fillCourseSelectGrouped(id, courses, first = 'Select') {
@@ -2153,9 +2153,9 @@ function updateRoomOptions(component) {
 }
 
 const SET_TYPE_HINTS = {
-  set_0: 'Always F2F, every meeting. Laboratory only — room required.',
-  set_1: 'Starts F2F, alternates with Online. For 1st & 4th year Lecture. Can share room/time with SET 2 — instructor/block conflicts are still checked.',
-  set_2: 'Starts Online, alternates with F2F. For 2nd & 3rd year Lecture. Can share room/time with SET 1 — instructor/block conflicts are still checked.',
+  set_0: 'Always F2F, every meeting — room required.',
+  set_1: 'Starts F2F, alternates with Online. Default for 1st & 4th year Lecture. Can share room/time with SET 2 — instructor/block conflicts are still checked.',
+  set_2: 'Starts Online, alternates with F2F. Default for 2nd & 3rd year Lecture. Can share room/time with SET 1 — instructor/block conflicts are still checked.',
 };
 
 const ROOM_HINTS = {
@@ -2860,9 +2860,9 @@ function resetComponentFields(component) {
 }
 
 function prefillComponentFields(component, schedule) {
-  $('setType_' + component).value = schedule.set_type;
-  // Older rows saved before the component-based SET rule may hold a SET that's no longer valid for this component; this snaps the dropdown to the valid one so the next Save fixes it.
+  // Reset the options first, THEN apply the saved SET so the SET the scheduler already chose is kept.
   updateSetTypeOptions(component);
+  $('setType_' + component).value = schedule.set_type;
   setDayPatternUI(component, schedule.day_of_week);
   $('scheduleDuration_' + component).value = 'custom';
   updateEndTimeFromDuration(component);
