@@ -2153,9 +2153,9 @@ function updateRoomOptions(component) {
 }
 
 const SET_TYPE_HINTS = {
-  set_0: 'SET 0: 🏫 Always F2F, every meeting — used by Laboratory components only. A room is required.',
-  set_1: 'SET 1: 🏫 F2F / Online Rotation — starts F2F, then alternates continuously (F2F → Online → F2F → ...). Used by Lecture components (1st/4th year). May share the same room/time as SET 2 (won\'t room-conflict with it), but conflicts with SET 0 and other SET 1, and instructor/block conflicts against SET 2 are always checked regardless.',
-  set_2: 'SET 2: 💻 Online / F2F Rotation — starts Online, then alternates continuously (Online → F2F → Online → ...). Used by Lecture components (2nd/3rd year). May share the same room/time as SET 1 (won\'t room-conflict with it), but conflicts with SET 0 and other SET 2, and instructor/block conflicts against SET 1 are always checked regardless.',
+  set_0: 'Always F2F, every meeting. Laboratory only — room required.',
+  set_1: 'Starts F2F, alternates with Online. For 1st & 4th year Lecture. Can share room/time with SET 2 — instructor/block conflicts are still checked.',
+  set_2: 'Starts Online, alternates with F2F. For 2nd & 3rd year Lecture. Can share room/time with SET 1 — instructor/block conflicts are still checked.',
 };
 
 const ROOM_HINTS = {
@@ -2724,18 +2724,34 @@ function startEdit(entity, id) {
   }
 }
 
-function cancelEdit(entity) {
+/**
+ * Resets a form back to "create new" mode. For the Plot Schedule form, pass
+ * `{ keepPlottingContext: true }` after a SUCCESSFUL plot: this clears the
+ * per-course fields (Target, Course, Faculty, Components) the same as an
+ * intentional cancel would, but keeps School Year, Year Level, and Semester
+ * as the user left them, so they land right back on the Course Offering
+ * list for that same context and can plot the next course immediately
+ * instead of re-picking Year Level and Semester from scratch. An explicit
+ * Cancel/Close always resets everything, since that IS the user asking to
+ * leave the current plotting context.
+ */
+function cancelEdit(entity, { keepPlottingContext = false } = {}) {
   editing[entity] = null;
   const cfg = formConfig[entity];
   $(cfg.submitBtnId).innerHTML = cfg.addLabel;
   $(cfg.submitBtnId).disabled = false;
   if (cfg.cancelBtnId) $(cfg.cancelBtnId).classList.add('hidden');
+  const keptSchoolYear = (entity === 'schedules' && keepPlottingContext) ? $('scheduleSchoolYear').value : null;
+  const keptYearLevel = (entity === 'schedules' && keepPlottingContext) ? $('scheduleYearLevel').value : null;
+  const keptSemester = (entity === 'schedules' && keepPlottingContext) ? $('scheduleSemester').value : null;
   $(cfg.formId).reset();
   clearFormDirty(cfg.formId);
   clearValidationState(cfg.formId);
   if (cfg.modalTitleId) $(cfg.modalTitleId).textContent = cfg.addTitle;
   if (entity === 'schedules') {
-    $('scheduleSchoolYear').value = suggestedSchoolYear();
+    $('scheduleSchoolYear').value = keptSchoolYear || suggestedSchoolYear();
+    if (keptYearLevel) $('scheduleYearLevel').value = keptYearLevel;
+    if (keptSemester) $('scheduleSemester').value = keptSemester;
     scheduleCourseCombobox.syncDisplay();
     scheduleCourseCombobox.updateAvailability();
     COMPONENT_TYPES.forEach((c) => { componentUnlocked[c] = false; resetComponentFields(c); });
@@ -3487,7 +3503,7 @@ async function submitScheduleForm() {
     await request('schedules.php?mode=offering', { method: 'POST', body: JSON.stringify(body) });
     showToast('Subject offering saved successfully', 'success');
     closePlotScheduleModal();
-    cancelEdit('schedules');
+    cancelEdit('schedules', { keepPlottingContext: true });
     await loadAll();
   } catch (err) {
     if (err.data && (err.data.conflict_type === 'instructor_mismatch' || err.data.conflict_type === 'duplicate_component')) {
