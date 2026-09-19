@@ -2685,6 +2685,14 @@ tbody tr:last-child td {
     display: block !important;
   }
 
+  /* Views fade in on screen (opacity 0 -> 1). Never let that animation
+     leave a view half transparent when the print job is captured. */
+  .view.active {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
   .card {
     box-shadow: none;
     border: 1px solid #ddd;
@@ -2692,8 +2700,36 @@ tbody tr:last-child td {
     margin-bottom: var(--spacing-xl);
   }
 
+  /* Long lists (Schedule List, Course Offering) have to be allowed to run
+     onto more than one page. Keeping the whole table or card in one piece
+     made the browser clip everything that did not fit on the first page.
+     Rows stay intact and the header row repeats on every page instead. */
+  #schedules .card {
+    page-break-inside: auto;
+  }
+
   table {
+    page-break-inside: auto;
+  }
+
+  tr {
     page-break-inside: avoid;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  /* On screen the table sits inside a scroll box capped at 60vh, with a
+     sticky header. Paper cannot scroll, so that box cut off every row past
+     the first page and the columns on the right. Open it up completely. */
+  .table-responsive {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .table-responsive thead th {
+    position: static;
   }
 
   thead {
@@ -2786,7 +2822,7 @@ tbody tr:last-child td {
   }
 
   body.printing-offering .offering-block-title {
-    color: #000;
+    color: #5a3a12;
   }
 
   body.printing-offering .offering-table {
@@ -2795,7 +2831,8 @@ tbody tr:last-child td {
 
   body.printing-offering .offering-table th,
   body.printing-offering .offering-table td {
-    border: 1px solid #999;
+    border: none;
+    border-bottom: 1px solid #e3e3e3;
     padding: 4px 6px;
   }
 
@@ -2815,6 +2852,127 @@ tbody tr:last-child td {
   body.printing-offering .offering-table th:last-child,
   body.printing-offering .offering-table td:last-child:not([colspan]) {
     display: none;
+  }
+
+  /* Keep the same look as the screen: orange title bar, dark header row.
+     print-color-adjust makes the browser print these fills even when the
+     "Background graphics" option is off in the print dialog. */
+  body.printing-offering {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Soft orange with dark brown text, easier on the eyes than the
+     full-strength orange used on screen. */
+  body.printing-offering .offering-block-title {
+    background: #f7c98b;
+    border-radius: 8px 8px 0 0;
+  }
+
+  body.printing-offering .offering-table thead {
+    background: #6b2f2f;
+    border-bottom: none;
+  }
+
+  body.printing-offering .offering-table thead th {
+    background: #6b2f2f;
+    color: #fff;
+    border-bottom: none;
+  }
+
+  /* Drop the on-screen card frame and the divider line above the section so
+     the tables sit directly under the letterhead. */
+  body.printing-offering .view.active .card {
+    border: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  body.printing-offering #offeringOverviewSection {
+    border-top: none;
+    padding-top: 0;
+  }
+
+  /* Compact table for paper. The screen sizes are made for reading on a
+     monitor, which made rows tall and wrapped the time into three lines.
+     Smaller type, tighter cells, and no wrapping on the short columns. */
+  body.printing-offering .offering-table {
+    width: 100%;
+    font-size: 9.5pt;
+    table-layout: auto;
+  }
+
+  body.printing-offering .offering-table th,
+  body.printing-offering .offering-table td {
+    padding: 3px 5px;
+    line-height: 1.3;
+    font-size: 9.5pt;
+    vertical-align: middle;
+  }
+
+  body.printing-offering .offering-table th {
+    font-size: 8pt;
+    white-space: nowrap;
+  }
+
+  /* Day, Time, Room, Set and Type are short values, keep them on one line.
+     Course Title and Instructor are free to wrap. */
+  body.printing-offering .offering-table td:nth-child(1),
+  body.printing-offering .offering-table td:nth-child(2),
+  body.printing-offering .offering-table td:nth-child(3),
+  body.printing-offering .offering-table td:nth-child(5),
+  body.printing-offering .offering-table td:nth-child(6),
+  body.printing-offering .offering-table td:nth-child(7),
+  body.printing-offering .offering-table td:nth-child(8) {
+    white-space: nowrap;
+  }
+
+  body.printing-offering .offering-block-title {
+    font-size: 10.5pt;
+    padding: 4px 6px;
+    line-height: 1.3;
+  }
+
+  body.printing-offering .offering-block-section {
+    margin-bottom: 14px;
+  }
+
+  /* Keep the "Instructor not assigned" pill as on screen, just smaller. */
+  body.printing-offering .instructor-missing {
+    font-size: 8pt;
+    padding: 1px 6px;
+    white-space: nowrap;
+  }
+
+  /* Schedule List print. The last column only holds the Edit/Delete
+     buttons, which are hidden on paper, so drop the empty column too and
+     give the real columns the room. */
+  #schedulesTable {
+    font-size: 11px;
+  }
+
+  #schedulesTable th:last-child,
+  #schedulesTable td:last-child {
+    display: none;
+  }
+
+  #schedulesTable th,
+  #schedulesTable td {
+    border: 1px solid #999;
+    padding: 4px 6px;
+    white-space: normal;
+  }
+
+  /* Badges and pills use light text on a colored fill, which turns
+     invisible when the browser skips background colors. Print them as
+     plain outlined text instead. */
+  #schedulesTable .badge,
+  #schedulesTable .tt-modality {
+    background: none !important;
+    color: #000 !important;
+    border: 1px solid #666;
+    border-radius: 4px;
+    padding: 1px 6px;
   }
 }
 
@@ -2845,8 +3003,10 @@ tbody tr:last-child td {
   font-size: 0.95rem;
   text-align: center;
   padding: 8px 10px;
-  background: var(--accent, #7a1f2b);
-  color: #fff;
+  /* Soft orange with dark brown text, easier on the eyes than the
+     full-strength accent color. */
+  background: #f7c98b;
+  color: #5a3a12;
   border-radius: 8px 8px 0 0;
   letter-spacing: 0.02em;
 }
@@ -2855,7 +3015,6 @@ tbody tr:last-child td {
 .offering-table td { font-size: 0.85rem; vertical-align: top; }
 .offering-row { cursor: pointer; transition: background 0.15s; }
 .offering-row:hover { background: var(--bg-hover, rgba(122,31,43,0.08)); }
-.offering-row.is-editing { outline: 2px solid var(--accent, #7a1f2b); outline-offset: -2px; }
 .offering-row-unscheduled td { color: var(--text-secondary, #888); font-style: italic; }
 
 /* Auto-join row on the Course Offering table: this block doesn't need its
