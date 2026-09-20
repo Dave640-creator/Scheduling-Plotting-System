@@ -53,11 +53,7 @@ The conflict rule itself was corrected to match how SET 0/1/2 actually work. **I
 - The SET a course starts with is only a **default**: Laboratory = SET 0; Lecture = SET 1 for 1st/4th year, SET 2 for 2nd/3rd year. It is not a restriction.
 - The room-conflict rule (`sets_conflict()`) is unchanged.
 
-<<<<<<< HEAD
-The default lives in `default_set_type()` in `api/schedules.php` (authoritative; `allowed_set_types()` now returns all three) and is mirrored in `assets/js/app.js` (`defaultSetType()` / `setsConflict()`). `database/migration_set_by_component.sql` is a one-time data fix for the old locked rule -- do NOT run it now, it would overwrite the SETs you chose.
-=======
 The default lives in `default_set_type()` in `api/schedules.php` (authoritative; `allowed_set_types()` now returns all three) and is mirrored in `assets/js/app.js` (`defaultSetType()` / `setsConflict()`). The old one-time SET data-fix migration has been removed -- the SET is chosen per schedule and is never overwritten by the database file.
->>>>>>> 6260a01 (added default max students)
 
 ## Instructor Is Optional While Plotting (2026-09-19)
 
