@@ -356,7 +356,8 @@ function getTableState(tableId) {
   return tableState[tableId];
 }
 
-function renderDataTable(tableId, columns, data, opts = {}) {
+/** The rows a table is showing right now, before paging: the page's data with the table's search box and sort applied. Print previews use this so they match the screen. */
+function getVisibleTableRows(tableId, columns, data) {
   const st = getTableState(tableId);
   let rows = data;
 
@@ -380,6 +381,12 @@ function renderDataTable(tableId, columns, data, opts = {}) {
       return 0;
     });
   }
+  return rows;
+}
+
+function renderDataTable(tableId, columns, data, opts = {}) {
+  const st = getTableState(tableId);
+  const rows = getVisibleTableRows(tableId, columns, data);
 
   const total = rows.length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -1417,6 +1424,7 @@ async function loadAll() {
   renderTimetableSelectors();
   renderTimetable();
   renderOfferingOverview();
+  renderReportPanes();
 }
 
 function iconForStatKey(key) {
@@ -2172,14 +2180,93 @@ function renderTimetable() {
   $('ttGrid').innerHTML = html;
 }
 
-function fillPrintLetterhead(title, subtitle) {
-  $('printLetterheadTitle').textContent = title;
-  $('printLetterheadSubtitle').textContent = subtitle;
-  $('printLetterheadDate').textContent = 'Printed on ' + new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
+/* =====================================================
+   REPORTS AND PRINT PREVIEW
+
+   Flow for every report:  page  ->  Print Preview  ->  Print.
+   Nothing prints straight from a page. Each Print Preview button builds the
+   report from the SAME data the page is showing right now (its filters, and
+   for the Schedule List also its search box and sort), shows it in the
+   preview popup with the school header, and only the Print button inside
+   the popup opens the browser print dialog.
+
+   Pages and their reports:
+     Schedules      -> Class Schedule (list) and Incomplete Schedule Assignments (tab)
+     Timetables     -> Block Timetable and Faculty Load
+     Plot Schedule  -> Course Offering
+     Rooms          -> Room Utilization (tab)
+     Courses        -> Unscheduled Courses (tab)
+     Faculty Assignments -> Faculty Assignments (tab)
+
+   The preview and the printout are the same HTML, so what you see is what
+   comes out on paper. Printing works by copying the preview into the hidden
+   #printReportRoot and adding `printing-report` to <body>; the print CSS then
+   shows only that container.
+   ===================================================== */
+
+/** Header used at the top of every report: logos, school, institute, title, subtitle, date. */
+function reportHeaderHtml(title, subtitle) {
+  const printedOn = new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
+  return `
+    <div class="rp-header">
+      <div class="rp-logos">
+        <img src="assets/img/tcgc-logo.jpg" alt="TCGC Logo" />
+        <img src="assets/img/ics-logo.png" alt="ICS Logo" />
+      </div>
+      <h1>Tangub City Global College</h1>
+      <p>Institute of Computer Studies</p>
+      <h2>${escapeHtml(title)}</h2>
+      ${subtitle ? `<p class="rp-subtitle">${escapeHtml(subtitle)}</p>` : ''}
+      <p class="rp-date">Printed on ${escapeHtml(printedOn)}</p>
+    </div>`;
 }
 
-function printSchedules() {
-  // Academic Year and Semester are always stated, even when the filter is "All".
+/** Whether the report being previewed should print on a landscape page (wide tables, timetables). */
+let previewLandscape = false;
+
+function openReportPreview({ title, subtitle, bodyHtml, landscape = false }) {
+  previewLandscape = landscape;
+  $('reportPreviewDoc').innerHTML = `${reportHeaderHtml(title, subtitle)}<div class="rp-body">${bodyHtml}</div>`;
+  $('modalReportPreview').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+  $('reportPreviewDoc').closest('.modal-body').scrollTop = 0;
+}
+
+function closeReportPreview() {
+  $('modalReportPreview').classList.add('hidden');
+  document.body.style.overflow = '';
+}
+window.closeReportPreview = closeReportPreview;
+
+/** Prints exactly what the preview shows. */
+function printReportPreview() {
+  $('printReportRoot').innerHTML = `<div class="rp-doc">${$('reportPreviewDoc').innerHTML}</div>`;
+  // Page orientation can only be set with an @page rule, so add one for this print job only.
+  const pageStyle = document.createElement('style');
+  pageStyle.textContent = `@page { size: A4 ${previewLandscape ? 'landscape' : 'portrait'}; margin: 12mm; }`;
+  document.head.appendChild(pageStyle);
+  document.body.classList.add('printing-report');
+  const restore = () => {
+    document.body.classList.remove('printing-report');
+    $('printReportRoot').innerHTML = '';
+    pageStyle.remove();
+    window.removeEventListener('afterprint', restore);
+  };
+  window.addEventListener('afterprint', restore);
+  window.print();
+}
+$('reportPreviewPrintBtn').addEventListener('click', printReportPreview);
+
+/* ---------- Pages that already show their own data ---------- */
+
+/** Class Schedule: previews the Schedule List rows exactly as the page shows them (filters, search and sort). */
+function previewClassSchedule() {
+  const rows = getVisibleTableRows('schedulesTable', SCHEDULES_TABLE_COLUMNS, filteredSchedules());
+  if (!rows.length) {
+    showToast('There are no schedules to preview for the current filters.', 'warning');
+    return;
+  }
+
   const parts = [
     scheduleFilters.schoolYear ? `Academic Year ${scheduleFilters.schoolYear}` : 'All Academic Years',
     scheduleFilters.semester ? (SEMESTER_LABELS[scheduleFilters.semester] || scheduleFilters.semester) : 'All Semesters',
@@ -2188,38 +2275,65 @@ function printSchedules() {
   if (scheduleFilters.target) {
     const { blockId, spareId } = parseTargetValue(scheduleFilters.target);
     const target = blockId ? state.blocks.find((b) => Number(b.id) === blockId) : state.spares.find((sp) => Number(sp.id) === spareId);
-    if (target) parts.push(blockId ? blockLabel(target) : spareLabel(target));
+    if (target) parts.push(blockId ? reportTargetLabel(target.program_code, target.year_level, target.block_name) : reportTargetLabel(target.program_code, target.year_level, null));
   }
-  if (scheduleFilters.faculty) {
+  if (scheduleFilters.faculty === NO_INSTRUCTOR_FILTER) {
+    parts.push('Instructor not assigned');
+  } else if (scheduleFilters.faculty) {
     const fac = state.faculty.find((f) => String(f.id) === String(scheduleFilters.faculty));
     if (fac) parts.push(fac.faculty_name);
   }
-  fillPrintLetterhead('Class Schedule', parts.join(' \u00b7 '));
+  const search = getTableState('schedulesTable').search;
+  if (search) parts.push(`Search: ${search}`);
 
-  renderSchedulesTable(true);
-  const restore = () => { renderSchedulesTable(false); window.removeEventListener('afterprint', restore); };
-  window.addEventListener('afterprint', restore);
-  window.print();
+  const report = {
+    details: [['Schedules', String(rows.length)]],
+    sections: [{
+      columns: ['Course', 'Type', 'Block/SPARE', 'Day', 'Time', 'Instructor', 'Room', 'SET'],
+      rows: rows.map((s) => [
+        { text: `${s.course_code}  ${s.course_title}`, cls: 'pr-strong' },
+        COMPONENT_LABELS[s.component] || s.component,
+        scheduleTargetLabel(s),
+        formatDayPattern(s.day_of_week),
+        `${formatTimeDisplay(s.start_time.slice(0, 5))} to ${formatTimeDisplay(s.end_time.slice(0, 5))}`,
+        s.faculty_name || 'Not assigned',
+        s.room_name || 'TBA',
+        String(s.set_type || '').replace('set_', 'SET '),
+      ]),
+    }],
+    emptyMessage: '',
+  };
+  openReportPreview({ title: 'Class Schedule', subtitle: parts.join(' \u00b7 '), bodyHtml: renderReportHtml(report), landscape: true });
 }
-window.printSchedules = printSchedules;
+window.previewClassSchedule = previewClassSchedule;
 
-function printTimetable() {
-  const heading = $('ttHeading').textContent.trim();
-  fillPrintLetterhead(ttMode === 'block' ? 'Block Timetable' : 'Faculty Load Timetable', heading);
-  window.print();
+/** Block Timetable / Faculty Load: previews the timetable grid currently on the page. */
+function previewTimetable() {
+  const selectionMade = ttMode === 'block' ? !!$('ttTarget').value : !!$('ttFaculty').value;
+  if (!selectionMade || !$('ttGrid').querySelector('.tt-block')) {
+    showToast(`Pick a ${ttMode === 'block' ? 'block' : 'faculty'} that has schedules first.`, 'warning');
+    return;
+  }
+  // Copy the grid (and drop its id so the page never has two of them).
+  const grid = $('ttGrid').cloneNode(true);
+  grid.removeAttribute('id');
+  grid.removeAttribute('style');
+
+  const details = $('ttSummaryCard').classList.contains('hidden')
+    ? []
+    : [...$('ttSummary').querySelectorAll('.stat-card')].map((card) => [card.querySelector('.label').textContent, card.querySelector('.num').textContent]);
+
+  openReportPreview({
+    title: ttMode === 'block' ? 'Block Timetable' : 'Faculty Load Timetable',
+    subtitle: $('ttHeading').textContent.replace(/\s*\|\s*/g, ' \u00b7 ').trim(),
+    bodyHtml: `${details.length ? reportDetailsHtml(details) : ''}<div class="timetable-wrap">${grid.outerHTML}</div><p class="pr-note">F2F = Face-to-Face. ONLINE = Online.</p>`,
+    landscape: true,
+  });
 }
-window.printTimetable = printTimetable;
+window.previewTimetable = previewTimetable;
 
-/**
- * Prints just the Course Offering table from the Plot Schedule view.
- * The whole plotting view lives inside <form id="scheduleForm">, and the
- * base print stylesheet hides every form -- so instead of restructuring
- * the page, this flips a `printing-offering` class on <body> that a
- * dedicated print block in style.css uses to un-hide the form and show
- * only #offeringOverviewSection inside it. The class is removed again on
- * afterprint so the screen view is untouched.
- */
-function printOffering() {
+/** Course Offering: previews the offering tables currently on the Plot Schedule page. */
+function previewOffering() {
   const schoolYear = $('scheduleSchoolYear').value;
   const yearLevel = $('scheduleYearLevel').value;
   const semester = $('scheduleSemester').value;
@@ -2227,38 +2341,38 @@ function printOffering() {
     showToast('Select an Academic Year, Year Level, and Semester first.', 'warning');
     return;
   }
+  const sections = $('offeringOverview').querySelectorAll('.offering-block-section');
+  if (!sections.length) {
+    showToast('There is no course offering to preview yet.', 'warning');
+    return;
+  }
+
+  // Copy the tables, then strip everything that only makes sense on screen (click handlers, edit icons).
+  const wrap = document.createElement('div');
+  sections.forEach((section) => wrap.appendChild(section.cloneNode(true)));
+  wrap.querySelectorAll('*').forEach((el) => {
+    [...el.attributes].forEach((attr) => {
+      if (attr.name.startsWith('on') || attr.name.startsWith('data-') || attr.name === 'tabindex' || attr.name === 'role') el.removeAttribute(attr.name);
+    });
+  });
+  wrap.querySelectorAll('tr').forEach((tr) => {
+    const last = tr.lastElementChild;
+    if (last && !last.hasAttribute('colspan')) last.remove();
+  });
+  wrap.querySelectorAll('.offering-row-unscheduled td[colspan]').forEach((td) => { td.textContent = 'Not yet scheduled'; });
+
   const blocksForYear = state.blocks.filter((b) => Number(b.year_level) === Number(yearLevel));
-  const programCode = blocksForYear[0]?.program_code || 'BSCS';
   const subtitle = [
-    programCode,
+    blocksForYear[0]?.program_code || 'BSCS',
     YEAR_LEVEL_LABELS[yearLevel] || `Year ${yearLevel}`,
     SEMESTER_LABELS[semester] || semester,
     `Academic Year ${schoolYear}`,
   ].join(' \u00b7 ');
-  fillPrintLetterhead('Course Offering', subtitle);
-
-  document.body.classList.add('printing-offering');
-  const restore = () => {
-    document.body.classList.remove('printing-offering');
-    window.removeEventListener('afterprint', restore);
-  };
-  window.addEventListener('afterprint', restore);
-  window.print();
+  openReportPreview({ title: 'Course Offering', subtitle, bodyHtml: wrap.innerHTML, landscape: true });
 }
-window.printOffering = printOffering;
+window.previewOffering = previewOffering;
 
-/* =====================================================
-   PAGE REPORTS
-   Faculty Assignments (Faculty Assignments page), Room Utilization (Rooms
-   page), Unscheduled Courses (Courses page) and Incomplete Schedule
-   Assignments (Schedules page) each have a Print button that opens a small
-   options popup (Academic Year, Semester, and filters that fit the report).
-   The report is built here from the data already loaded in `state` and
-   printed through the hidden #printReportRoot container.
-
-   Printing works by adding `printing-report` to <body>: the print CSS then
-   hides every view and shows only #printReportRoot under the letterhead.
-   ===================================================== */
+/* ---------- Report definitions (Rooms, Courses, Schedules, Faculty Assignments tabs) ---------- */
 
 const REPORT_META = {
   facultyAssignments: {
@@ -2271,33 +2385,52 @@ const REPORT_META = {
     title: 'Room Utilization',
     icon: 'fa-door-open',
     desc: 'Classes held in each room and the weekly hours they use.',
-    filters: ['semester', 'room'],
+    filters: ['schoolYear', 'semester', 'room'],
   },
   unscheduledCourses: {
     title: 'Unscheduled Courses',
     icon: 'fa-clipboard-question',
     desc: 'Courses assigned to a block or SPARE that still have no Lecture or Laboratory schedule.',
-    filters: ['semester', 'year'],
+    filters: ['schoolYear', 'semester', 'year'],
   },
   incompleteAssignments: {
     title: 'Incomplete Schedule Assignments',
     icon: 'fa-user-slash',
     desc: 'Plotted schedules that still need an instructor, a room, or both.',
-    filters: ['semester', 'year', 'issue'],
+    filters: ['schoolYear', 'semester', 'year', 'issue'],
   },
 };
 
-let activeReport = 'unscheduledCourses';
-
 const COMPONENT_LABELS = { lecture: 'Lecture', laboratory: 'Laboratory' };
 
-function getReportFilters() {
+const REPORT_FILTER_FIELDS = {
+  schoolYear: { label: 'Academic Year', icon: 'fa-calendar-week' },
+  semester: {
+    label: 'Semester', icon: 'fa-calendar',
+    options: [['', 'All Semesters'], ['first_semester', 'First Semester'], ['second_semester', 'Second Semester'], ['summer', 'Summer']],
+  },
+  year: {
+    label: 'Year Level', icon: 'fa-graduation-cap',
+    options: [['', 'All Year Levels'], ['1', '1st Year'], ['2', '2nd Year'], ['3', '3rd Year'], ['4', '4th Year']],
+  },
+  room: { label: 'Room', icon: 'fa-door-open' },
+  issue: {
+    label: 'Issue', icon: 'fa-triangle-exclamation',
+    options: [['', 'All Issues'], ['instructor', 'Needs Instructor'], ['room', 'Needs Room']],
+  },
+};
+
+const reportFilterId = (key, field) => `rp_${key}_${field}`;
+
+/** Reads a report tab's current filters. Fields the report does not use come back empty. */
+function getReportFilters(key) {
+  const read = (field) => ($(reportFilterId(key, field)) ? $(reportFilterId(key, field)).value : '');
   return {
-    schoolYear: $('reportSchoolYear').value || suggestedSchoolYear(),
-    semester: $('reportSemester').value,
-    year: $('reportYear').value,
-    room: $('reportRoom').value,
-    issue: $('reportIssue').value,
+    schoolYear: read('schoolYear') || suggestedSchoolYear(),
+    semester: read('semester'),
+    year: read('year'),
+    room: read('room'),
+    issue: read('issue'),
   };
 }
 
@@ -2305,11 +2438,16 @@ function reportSemesterLabel(semester) {
   return semester ? (SEMESTER_LABELS[semester] || semester) : 'All Semesters';
 }
 
+function reportYearLabel(year) {
+  return year ? (YEAR_LEVEL_LABELS[year] || `Year ${year}`) : 'All Year Levels';
+}
+
 /** "BSCS 1-Block A" or "BSCS 1-SPARE", the same naming scheduleTargetLabel() uses. */
 function reportTargetLabel(programCode, yearLevel, blockName) {
   return `${programCode} ${yearLevel}-${blockName || 'SPARE'}`;
 }
 
+/** "MWF 8:00 AM to 9:00 AM" */
 function reportScheduleText(s) {
   return `${formatDayPattern(s.day_of_week)} ${formatTimeDisplay(s.start_time.slice(0, 5))} to ${formatTimeDisplay(s.end_time.slice(0, 5))}`;
 }
@@ -2327,9 +2465,18 @@ function findCourseById(id) {
   return state.courses.find((c) => Number(c.id) === Number(id)) || null;
 }
 
+/** "IT 101" for a lecture-only course, "IT 101 (Laboratory)" when the course also has a lab part so the two rows can be told apart. */
+function courseWithComponent(s) {
+  const course = findCourseById(s.course_id);
+  const hasBoth = course && Number(course.lec_units) > 0 && Number(course.lab_units) > 0;
+  return hasBoth ? `${s.course_code} (${COMPONENT_LABELS[s.component] || s.component})` : s.course_code;
+}
+
+const plural = (n, one, many = one + 's') => `${n} ${n === 1 ? one : many}`;
+
 /* ---------- Report builders ----------
-   Each returns { title, details: [[label, value]], sections: [{ heading?, note?, columns, rows }], emptyMessage }.
-   A cell is a plain string, or { text, cls } when it needs a style. */
+   Each returns { title, subtitle, details, sections, emptyMessage, summary, count, landscape }.
+   A section is { heading?, note?, columns, rows }; a cell is a string or { text, cls }. */
 
 function buildFacultyAssignmentsReport(f) {
   const rows = state.assignments
@@ -2353,16 +2500,17 @@ function buildFacultyAssignmentsReport(f) {
       String(Number(course.lec_units) + Number(course.lab_units)),
     ];
   });
+  const instructors = new Set(rows.map(({ a }) => a.faculty_id)).size;
 
   return {
     title: REPORT_META.facultyAssignments.title,
-    details: [
-      ['Year Level', f.year ? (YEAR_LEVEL_LABELS[f.year] || f.year) : 'All Year Levels'],
-      ['Instructors', String(new Set(rows.map(({ a }) => a.faculty_id)).size)],
-      ['Assignments', String(rows.length)],
-    ],
+    subtitle: `${reportSemesterLabel(f.semester)} \u00b7 ${reportYearLabel(f.year)}`,
+    details: [['Instructors', String(instructors)], ['Assignments', String(rows.length)]],
     sections: [{ columns: ['Instructor', 'Course Code', 'Course Title', 'Year Level', 'Semester', 'Units'], rows: tableRows }],
     emptyMessage: 'No faculty course assignments match these filters.',
+    summary: `Showing ${plural(rows.length, 'assignment')} for ${plural(instructors, 'instructor')}.`,
+    count: rows.length,
+    landscape: false,
   };
 }
 
@@ -2393,7 +2541,7 @@ function buildRoomUtilizationReport(f) {
   perRoom.forEach(({ room, list, minutes }) => {
     sections.push({
       heading: `${room.room_name} (${typeLabel(room)})`,
-      note: list.length ? `${list.length} class${list.length === 1 ? '' : 'es'}, ${formatReportHours(minutes)} per week` : 'No classes scheduled in this room.',
+      note: list.length ? `${plural(list.length, 'class', 'classes')}, ${formatReportHours(minutes)} per week` : 'No classes scheduled in this room.',
       columns: ['Schedule', 'Course', 'Block/SPARE', 'Instructor', 'SET'],
       rows: list.map((s) => [
         reportScheduleText(s),
@@ -2406,23 +2554,17 @@ function buildRoomUtilizationReport(f) {
   });
 
   const room = f.room ? state.rooms.find((r) => String(r.id) === String(f.room)) : null;
+  const classes = perRoom.reduce((sum, r) => sum + r.list.length, 0);
   return {
     title: REPORT_META.roomUtilization.title,
-    details: [
-      ['Room', room ? room.room_name : 'All Rooms'],
-      ['Rooms Listed', String(rooms.length)],
-      ['Schedules Without a Room', String(withoutRoom)],
-    ],
+    subtitle: `Academic Year ${f.schoolYear} \u00b7 ${reportSemesterLabel(f.semester)}`,
+    details: [['Room', room ? room.room_name : 'All Rooms'], ['Schedules Without a Room', String(withoutRoom)]],
     sections,
     emptyMessage: 'No rooms found.',
+    summary: `Showing ${plural(rooms.length, 'room')} with ${plural(classes, 'class', 'classes')} scheduled.`,
+    count: rooms.length,
+    landscape: false,
   };
-}
-
-/** "IT 101" for a lecture-only course, "IT 101 (Laboratory)" when the course also has a lab part so the two rows can be told apart. */
-function courseWithComponent(s) {
-  const course = findCourseById(s.course_id);
-  const hasBoth = course && Number(course.lec_units) > 0 && Number(course.lab_units) > 0;
-  return hasBoth ? `${s.course_code} (${COMPONENT_LABELS[s.component] || s.component})` : s.course_code;
 }
 
 function buildUnscheduledCoursesReport(f) {
@@ -2446,7 +2588,6 @@ function buildUnscheduledCoursesReport(f) {
   const pushIfMissing = (course, target, label) => {
     const missing = missingFor(course, target);
     if (!missing.length) return;
-    const required = requiredComponents(course).length;
     rows.push({
       year: Number(course.year_level),
       target: label,
@@ -2456,7 +2597,7 @@ function buildUnscheduledCoursesReport(f) {
         course.course_title,
         label,
         missing.map((c) => COMPONENT_LABELS[c]).join(' and '),
-        missing.length === required ? 'Not plotted' : 'Partly plotted',
+        missing.length === requiredComponents(course).length ? 'Not plotted' : 'Partly plotted',
       ],
     });
   };
@@ -2497,17 +2638,18 @@ function buildUnscheduledCoursesReport(f) {
   const columns = ['Course Code', 'Course Title', 'Block/SPARE', 'Missing', 'Status'];
   const sections = [...new Set(rows.map((r) => r.year))].map((year) => {
     const yearRows = rows.filter((r) => r.year === year);
-    return { heading: YEAR_LEVEL_LABELS[year] || `Year ${year}`, note: `${yearRows.length} item${yearRows.length === 1 ? '' : 's'}`, columns, rows: yearRows.map((r) => r.cells) };
+    return { heading: YEAR_LEVEL_LABELS[year] || `Year ${year}`, note: plural(yearRows.length, 'item'), columns, rows: yearRows.map((r) => r.cells) };
   });
 
   return {
     title: REPORT_META.unscheduledCourses.title,
-    details: [
-      ['Year Level', f.year ? (YEAR_LEVEL_LABELS[f.year] || f.year) : 'All Year Levels'],
-      ['Items Needing a Schedule', String(rows.length)],
-    ],
+    subtitle: `Academic Year ${f.schoolYear} \u00b7 ${reportSemesterLabel(f.semester)} \u00b7 ${reportYearLabel(f.year)}`,
+    details: [['Items Needing a Schedule', String(rows.length)]],
     sections,
     emptyMessage: 'Every course is fully scheduled for this selection.',
+    summary: rows.length ? `Showing ${plural(rows.length, 'course')} that still need a schedule.` : 'Every course is fully scheduled for this selection.',
+    count: rows.length,
+    landscape: false,
   };
 }
 
@@ -2533,14 +2675,11 @@ function buildIncompleteAssignmentsReport(f) {
       || scheduleTargetLabel(a.s).localeCompare(scheduleTargetLabel(b.s))
       || a.s.course_code.localeCompare(b.s.course_code));
 
-  const issueFilterLabel = { '': 'All Issues', instructor: 'Needs Instructor', room: 'Needs Room' }[f.issue];
+  const issueText = { '': '', instructor: 'Needs Instructor', room: 'Needs Room' }[f.issue];
   return {
     title: REPORT_META.incompleteAssignments.title,
-    details: [
-      ['Year Level', f.year ? (YEAR_LEVEL_LABELS[f.year] || f.year) : 'All Year Levels'],
-      ['Issue', issueFilterLabel],
-      ['Schedules Listed', String(rows.length)],
-    ],
+    subtitle: [`Academic Year ${f.schoolYear}`, reportSemesterLabel(f.semester), reportYearLabel(f.year), issueText].filter(Boolean).join(' \u00b7 '),
+    details: [['Schedules Listed', String(rows.length)]],
     sections: [{
       columns: ['Course', 'Block/SPARE', 'Schedule', 'Instructor', 'Room', 'Status'],
       rows: rows.map(({ s, issue }) => [
@@ -2553,31 +2692,41 @@ function buildIncompleteAssignmentsReport(f) {
       ]),
     }],
     emptyMessage: 'No incomplete schedule assignments for this selection.',
+    summary: rows.length
+      ? `Showing ${plural(rows.length, 'schedule')} that still need instructor and/or room assignments.`
+      : 'No incomplete schedule assignments for this selection.',
+    count: rows.length,
+    landscape: true,
   };
 }
 
 function buildReport(key) {
-  const f = getReportFilters();
+  const f = getReportFilters(key);
   if (key === 'facultyAssignments') return buildFacultyAssignmentsReport(f);
   if (key === 'roomUtilization') return buildRoomUtilizationReport(f);
   if (key === 'incompleteAssignments') return buildIncompleteAssignmentsReport(f);
   return buildUnscheduledCoursesReport(f);
 }
 
-/** Turns a report object into HTML. Used for both the on-screen preview and the print container. */
+function reportDetailsHtml(details) {
+  const items = details
+    .map(([label, value]) => `<div class="pr-detail"><span>${escapeHtml(label)}:</span> <strong>${escapeHtml(value)}</strong></div>`)
+    .join('');
+  return `<div class="pr-details">${items}</div>`;
+}
+
+/** Turns a report object into HTML. Used for the on-page view and the preview, so they always match. */
 function renderReportHtml(report) {
   const cellHtml = (cell) => {
     if (cell && typeof cell === 'object') return `<td class="${cell.cls || ''}">${escapeHtml(cell.text)}</td>`;
     return `<td>${escapeHtml(cell)}</td>`;
   };
 
-  const details = report.details
-    .map(([label, value]) => `<div class="pr-detail"><span>${escapeHtml(label)}:</span> <strong>${escapeHtml(value)}</strong></div>`)
-    .join('');
+  const details = reportDetailsHtml(report.details);
 
   const hasRows = report.sections.some((sec) => sec.rows.length);
   if (!hasRows) {
-    return `<div class="pr-details">${details}</div><p class="pr-empty">${escapeHtml(report.emptyMessage)}</p>`;
+    return `${details}<p class="pr-empty">${escapeHtml(report.emptyMessage)}</p>`;
   }
 
   const sections = report.sections.map((sec) => {
@@ -2589,68 +2738,91 @@ function renderReportHtml(report) {
     return `<section class="pr-section">${heading}${note}<table class="pr-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></section>`;
   }).join('');
 
-  return `<div class="pr-details">${details}</div>${sections}`;
+  return `${details}${sections}`;
 }
 
-/* ---------- Reports view (screen) ---------- */
+/* ---------- Report tabs on their pages ---------- */
 
-function renderReportSelectors() {
-  const prevYear = $('reportSchoolYear').value;
-  const prevRoom = $('reportRoom').value;
+/** Builds the filters + live report + Print Preview button inside each report tab container. */
+function mountReportPanes() {
+  Object.entries(REPORT_META).forEach(([key, meta]) => {
+    const pane = $('reportPane_' + key);
+    if (!pane) return;
+    const fields = meta.filters.map((field) => {
+      const def = REPORT_FILTER_FIELDS[field];
+      const options = (def.options || []).map(([value, label]) => `<option value="${value}">${escapeHtml(label)}</option>`).join('');
+      return `<div class="form-group">
+        <label for="${reportFilterId(key, field)}"><i class="fas ${def.icon}"></i> ${def.label}</label>
+        <select id="${reportFilterId(key, field)}">${options}</select>
+      </div>`;
+    }).join('');
+
+    pane.innerHTML = `
+      <div class="card">
+        <div class="report-panel-head">
+          <div class="card-header-text">
+            <h3><i class="fas ${meta.icon}"></i> ${escapeHtml(meta.title)}</h3>
+            <p>${escapeHtml(meta.desc)}</p>
+          </div>
+          <button type="button" class="print-btn" data-preview-report="${key}"><i class="fas fa-print"></i> <span>Print Preview</span></button>
+        </div>
+        <div class="form-grid">${fields}</div>
+        <p class="report-summary" id="rp_${key}_summary"></p>
+        <div class="report-live" id="rp_${key}_live"></div>
+      </div>`;
+
+    pane.querySelectorAll('select').forEach((sel) => sel.addEventListener('change', () => renderReportLive(key)));
+    pane.querySelector('[data-preview-report]').addEventListener('click', () => previewReport(key));
+  });
+}
+
+/** Refreshes the Academic Year and Room dropdowns (keeping what was picked) and redraws every report tab. Runs after each data load. */
+function renderReportPanes() {
   const years = new Set(state.schedules.map((s) => s.school_year));
   years.add(suggestedSchoolYear());
-  const sorted = [...years].sort().reverse();
-  $('reportSchoolYear').innerHTML = sorted.map((sy) => `<option value="${escapeHtml(sy)}">${escapeHtml(sy)}</option>`).join('');
-  $('reportSchoolYear').value = sorted.includes(prevYear) ? prevYear : suggestedSchoolYear();
-
+  const sortedYears = [...years].sort().reverse();
   const rooms = state.rooms.slice().sort((a, b) => a.room_name.localeCompare(b.room_name, undefined, { numeric: true }));
-  $('reportRoom').innerHTML = '<option value="">All Rooms</option>' + rooms.map((r) => `<option value="${r.id}">${escapeHtml(r.room_name)}</option>`).join('');
-  if (rooms.some((r) => String(r.id) === prevRoom)) $('reportRoom').value = prevRoom;
-}
 
-/* ---------- Print options popup ---------- */
-
-function openPrintOptions(key) {
-  if (!REPORT_META[key]) return;
-  activeReport = key;
-  const meta = REPORT_META[key];
-  $('printOptionsTitle').innerHTML = `<i class="fas fa-print"></i> Print ${escapeHtml(meta.title)}`;
-  $('printOptionsDesc').textContent = meta.desc;
-  renderReportSelectors();
-  // Only show the filters that apply to this report.
-  document.querySelectorAll('#modalPrintOptions [data-report-filter]').forEach((el) => {
-    el.classList.toggle('hidden', !meta.filters.includes(el.dataset.reportFilter));
+  Object.entries(REPORT_META).forEach(([key, meta]) => {
+    if (meta.filters.includes('schoolYear')) {
+      const sel = $(reportFilterId(key, 'schoolYear'));
+      const prev = sel.value;
+      sel.innerHTML = sortedYears.map((sy) => `<option value="${escapeHtml(sy)}">${escapeHtml(sy)}</option>`).join('');
+      sel.value = sortedYears.includes(prev) ? prev : suggestedSchoolYear();
+    }
+    if (meta.filters.includes('room')) {
+      const sel = $(reportFilterId(key, 'room'));
+      const prev = sel.value;
+      sel.innerHTML = '<option value="">All Rooms</option>' + rooms.map((r) => `<option value="${r.id}">${escapeHtml(r.room_name)}</option>`).join('');
+      if (rooms.some((r) => String(r.id) === prev)) sel.value = prev;
+    }
+    renderReportLive(key);
   });
-  $('modalPrintOptions').classList.remove('hidden');
 }
-window.openPrintOptions = openPrintOptions;
 
-function closePrintOptions() {
-  $('modalPrintOptions').classList.add('hidden');
-}
-window.closePrintOptions = closePrintOptions;
-
-$('printOptionsConfirmBtn').addEventListener('click', () => {
-  closePrintOptions();
-  printReport(activeReport);
-});
-
-/** Prints one of the four page-level reports using the filters chosen in the print options popup. */
-function printReport(key = activeReport) {
+function renderReportLive(key) {
   const report = buildReport(key);
-  const f = getReportFilters();
-  fillPrintLetterhead(report.title, `Academic Year ${f.schoolYear} \u00b7 ${reportSemesterLabel(f.semester)}`);
-  $('printReportRoot').innerHTML = renderReportHtml(report);
-  document.body.classList.add('printing-report');
-  const restore = () => {
-    document.body.classList.remove('printing-report');
-    $('printReportRoot').innerHTML = '';
-    window.removeEventListener('afterprint', restore);
-  };
-  window.addEventListener('afterprint', restore);
-  window.print();
+  $(`rp_${key}_summary`).textContent = report.summary;
+  $(`rp_${key}_live`).innerHTML = renderReportHtml(report);
 }
-window.printReport = printReport;
+
+function previewReport(key) {
+  const report = buildReport(key);
+  if (!report.count) {
+    showToast('Nothing to preview for the current filters.', 'warning');
+    return;
+  }
+  openReportPreview({ title: report.title, subtitle: report.subtitle, bodyHtml: renderReportHtml(report), landscape: report.landscape });
+}
+
+// Tabs on the Schedules, Rooms, Courses and Faculty Assignments pages switch between the page's own content and its report.
+document.querySelectorAll('.page-tab').forEach((btn) => btn.addEventListener('click', () => {
+  const view = btn.closest('.view');
+  view.querySelectorAll('.page-tab').forEach((b) => b.classList.toggle('active', b === btn));
+  view.querySelectorAll(':scope > [data-pane]').forEach((pane) => pane.classList.toggle('hidden', pane.dataset.pane !== btn.dataset.paneTarget));
+}));
+
+mountReportPanes();
 
 document.querySelectorAll('.timetable-tab').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -2931,8 +3103,9 @@ function scheduleDaysFor(pattern) {
 
 function formatDayPattern(pattern) {
   const days = scheduleDaysFor(pattern);
-  const abbrev = { Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat', Sunday: 'Sun' };
-  return days.map((d) => abbrev[d] || d).join('/');
+  // School-style day codes: MWF, TTh, MW, S, Su, MTWThF.
+  const code = { Monday: 'M', Tuesday: 'T', Wednesday: 'W', Thursday: 'Th', Friday: 'F', Saturday: 'S', Sunday: 'Su' };
+  return days.map((d) => code[d] || d).join('');
 }
 
 function daysOverlap(patternA, patternB) {
@@ -3733,7 +3906,7 @@ document.querySelectorAll('[data-quick-open-modal]').forEach((btn) => btn.addEve
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (!$('confirmOverlay').classList.contains('hidden')) { closeConfirm(false); return; }
-  if (!$('modalPrintOptions').classList.contains('hidden')) { closePrintOptions(); return; }
+  if (!$('modalReportPreview').classList.contains('hidden')) { closeReportPreview(); return; }
   if (!$('modalAssignConfirm').classList.contains('hidden')) { closeAssignConfirm(); return; }
   if (!$('modalInstructorConflict').classList.contains('hidden')) { closeInstructorConflictModal(); return; }
   Object.keys(formConfig).forEach((entity) => {

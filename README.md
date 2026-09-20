@@ -128,19 +128,31 @@ Faculty
 
 Timetables display the scheduled time, course, faculty, room, and SET information and can be printed.
 
-Page Reports
+Reports and Print Preview
 
-Four more reports print from the page they belong to. Each Print button opens a small popup for the Academic Year, Semester, and any filter that fits that report.
+Every report follows the same flow: Page, then Print Preview, then Print. Nothing prints straight from a page. The Print Preview button opens a popup with the school header and the formatted report, and only the Print button inside that popup opens the browser print dialog. The preview is built from the same data the page is showing (its filters, and for the Schedule List also the search box and sort), so the printout never differs from the screen.
 
-Faculty Assignments page: Faculty Assignments report.
+Where each report lives:
 
-Rooms page: Room Utilization report (classes per room and weekly hours).
+Schedules page, Schedule List: Class Schedule (Print Preview button beside the search box).
 
-Courses page: Unscheduled Courses report (courses assigned to a block or separate SPARE that still lack a Lecture or Laboratory schedule, plus courses not assigned to any block).
+Schedules page, Incomplete Assignments tab: Incomplete Schedule Assignments (schedules with no instructor, no room, or neither).
 
-Schedules page: Print Incomplete (Incomplete Schedule Assignments report: schedules with no instructor, no room, or neither).
+Timetables page: Block Timetable and Faculty Load.
 
-They are built from data already loaded in the browser, so they need no extra API or database changes. Every printout has the school letterhead, the report title, the Academic Year and Semester, the filters used, and the print date. Long lists continue onto more pages with the table header repeated. The sidebar, filters and buttons are never printed.
+Plot Schedule page: Course Offering.
+
+Rooms page, Room Utilization tab: classes per room and weekly hours.
+
+Courses page, Unscheduled Courses tab: courses assigned to a block or separate SPARE that still lack a Lecture or Laboratory schedule, plus courses not assigned to any block.
+
+Faculty Assignments page, Assignments Report tab: courses per instructor (filtered by Semester and Year Level; assignments are not tied to an Academic Year).
+
+Each tab shows its filters, a summary line (for example "Showing 5 schedules that still need instructor and/or room assignments."), and the live report table. Every preview and printout has the school letterhead, the report title, the Academic Year and Semester (where the report has them), the filters used, and the print date. Long lists continue onto more pages with the table header repeated, and wide reports print in landscape. The sidebar, filters and buttons are never printed.
+
+The tab reports are built from data already loaded in the browser, so they need no extra API or database changes.
+
+Day patterns are shown as school-style codes: MWF, TTh, MW, S, Su, MTWThF.
 
 Course Management
 

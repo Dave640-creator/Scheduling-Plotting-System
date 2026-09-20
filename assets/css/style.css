@@ -2804,10 +2804,6 @@ tbody tr:last-child td {
    ===================================================== */
 
 @media print {
-  .print-letterhead {
-    display: block !important;
-  }
-
   .sidebar,
   .topbar,
   .print-btn,
@@ -2900,240 +2896,8 @@ tbody tr:last-child td {
   body {
     background: white;
   }
-
-  .print-letterhead-logos {
-    display: flex;
-    justify-content: center;
-    gap: var(--spacing-lg);
-    margin-bottom: var(--spacing-sm);
-  }
-
-  .print-letterhead-logos img {
-    height: 64px;
-    width: 64px;
-    object-fit: contain;
-  }
-
-  .print-letterhead h1 {
-    font-size: 20px;
-    font-weight: 800;
-    color: #000;
-    margin: 0;
-  }
-
-  .print-letterhead p {
-    font-size: 12.5px;
-    color: #333;
-    margin: 2px 0;
-  }
-
-  .print-letterhead h2 {
-    font-size: 15px;
-    font-weight: 700;
-    color: #000;
-    margin-top: var(--spacing-md);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-
-  .print-letterhead {
-    text-align: center;
-    border-bottom: 2px solid #000;
-    padding-bottom: var(--spacing-md);
-    margin-bottom: var(--spacing-lg);
-  }
-
-  /* Course Offering print (printOffering() in app.js toggles this class on
-     <body> for the duration of the print job). The whole Plot Schedule view
-     lives inside <form id="scheduleForm">, which the generic `form { display:
-     none }` rule above hides on every print -- that's why the offering table
-     was rendering blank below the letterhead. This re-shows that one form and,
-     inside it, only the actual Course Offering table: the Academic Year/Year
-     Level/Semester picker and the Faculty Assignment/Components sections stay
-     hidden, since the letterhead above already states the selected context. */
-  body.printing-offering #scheduleForm {
-    display: block !important;
-  }
-
-  body.printing-offering #scheduleForm > *:not(#offeringOverviewSection) {
-    display: none !important;
-  }
-
-  body.printing-offering #offeringOverviewSection .form-section-title,
-  body.printing-offering #offeringOverviewSection > .field-hint {
-    display: none !important;
-  }
-
-  /* Let a long offering list flow across multiple printed pages instead of
-     being clipped by the generic .card { page-break-inside: avoid } rule. */
-  body.printing-offering .view.active .card {
-    page-break-inside: auto;
-  }
-
-  body.printing-offering .offering-block-section {
-    page-break-inside: avoid;
-    margin-bottom: 18px;
-  }
-
-  body.printing-offering .offering-block-title {
-    color: #5a3a12;
-  }
-
-  body.printing-offering .offering-table {
-    border-collapse: collapse;
-  }
-
-  body.printing-offering .offering-table th,
-  body.printing-offering .offering-table td {
-    border: none;
-    border-bottom: 1px solid #e3e3e3;
-    padding: 4px 6px;
-  }
-
-  /* Repeats the header row on each new page a block's table spans. */
-  body.printing-offering .offering-table thead {
-    display: table-header-group;
-  }
-
-  body.printing-offering .offering-table tr {
-    page-break-inside: avoid;
-  }
-
-  /* The trailing column only ever held a clickable edit/add icon on screen
-     -- nothing to click on paper, so drop the column entirely. Cells with
-     a colspan (the "no courses in this block" empty-state row) are left
-     alone since they're the row's only cell, not the action column. */
-  body.printing-offering .offering-table th:last-child,
-  body.printing-offering .offering-table td:last-child:not([colspan]) {
-    display: none;
-  }
-
-  /* Keep the same look as the screen: orange title bar, dark header row.
-     print-color-adjust makes the browser print these fills even when the
-     "Background graphics" option is off in the print dialog. */
-  body.printing-offering {
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-
-  /* Soft orange with dark brown text, easier on the eyes than the
-     full-strength orange used on screen. */
-  body.printing-offering .offering-block-title {
-    background: #f7c98b;
-    border-radius: 8px 8px 0 0;
-  }
-
-  body.printing-offering .offering-table thead {
-    background: #6b2f2f;
-    border-bottom: none;
-  }
-
-  body.printing-offering .offering-table thead th {
-    background: #6b2f2f;
-    color: #fff;
-    border-bottom: none;
-  }
-
-  /* Drop the on-screen card frame and the divider line above the section so
-     the tables sit directly under the letterhead. */
-  body.printing-offering .view.active .card {
-    border: none;
-    padding: 0;
-    margin: 0;
-  }
-
-  body.printing-offering #offeringOverviewSection {
-    border-top: none;
-    padding-top: 0;
-  }
-
-  /* Compact table for paper. The screen sizes are made for reading on a
-     monitor, which made rows tall and wrapped the time into three lines.
-     Smaller type, tighter cells, and no wrapping on the short columns. */
-  body.printing-offering .offering-table {
-    width: 100%;
-    font-size: 9.5pt;
-    table-layout: auto;
-  }
-
-  body.printing-offering .offering-table th,
-  body.printing-offering .offering-table td {
-    padding: 3px 5px;
-    line-height: 1.3;
-    font-size: 9.5pt;
-    vertical-align: middle;
-  }
-
-  body.printing-offering .offering-table th {
-    font-size: 8pt;
-    white-space: nowrap;
-  }
-
-  /* Day, Time, Room, Set and Type are short values, keep them on one line.
-     Course Title and Instructor are free to wrap. */
-  body.printing-offering .offering-table td:nth-child(1),
-  body.printing-offering .offering-table td:nth-child(2),
-  body.printing-offering .offering-table td:nth-child(3),
-  body.printing-offering .offering-table td:nth-child(5),
-  body.printing-offering .offering-table td:nth-child(6),
-  body.printing-offering .offering-table td:nth-child(7),
-  body.printing-offering .offering-table td:nth-child(8) {
-    white-space: nowrap;
-  }
-
-  body.printing-offering .offering-block-title {
-    font-size: 10.5pt;
-    padding: 4px 6px;
-    line-height: 1.3;
-  }
-
-  body.printing-offering .offering-block-section {
-    margin-bottom: 14px;
-  }
-
-  /* Keep the "Instructor not assigned" pill as on screen, just smaller. */
-  body.printing-offering .instructor-missing {
-    font-size: 8pt;
-    padding: 1px 6px;
-    white-space: nowrap;
-  }
-
-  /* Schedule List print. The last column only holds the Edit/Delete
-     buttons, which are hidden on paper, so drop the empty column too and
-     give the real columns the room. */
-  #schedulesTable {
-    font-size: 11px;
-  }
-
-  #schedulesTable th:last-child,
-  #schedulesTable td:last-child {
-    display: none;
-  }
-
-  #schedulesTable th,
-  #schedulesTable td {
-    border: 1px solid #999;
-    padding: 4px 6px;
-    white-space: normal;
-  }
-
-  /* Badges and pills use light text on a colored fill, which turns
-     invisible when the browser skips background colors. Print them as
-     plain outlined text instead. */
-  #schedulesTable .badge,
-  #schedulesTable .tt-modality {
-    background: none !important;
-    color: #000 !important;
-    border: 1px solid #666;
-    border-radius: 4px;
-    padding: 1px 6px;
-  }
 }
 
-/* Hidden on screen at all times -- only ever shown inside @media print above. */
-.print-letterhead {
-  display: none;
-}
 /* Block/SPARE additions */
 .optional { color: var(--text-secondary, #888); font-weight: 400; font-size: 0.85em; }
 .checklist {
@@ -3493,21 +3257,11 @@ tbody tr:last-child td {
 }
 
 /* =====================================================
-   PAGE REPORTS (printable report container + Print buttons)
+   REPORTS AND PRINT PREVIEW
    ===================================================== */
 
 /* The print container is empty and hidden on screen. */
 .print-report-root {
-  display: none;
-}
-
-/* "Printed on ..." line under the letterhead title. */
-.print-letterhead .print-date {
-  font-size: 11px;
-  color: #555;
-}
-
-.print-letterhead .print-date:empty {
   display: none;
 }
 
@@ -3591,10 +3345,233 @@ tbody tr:last-child td {
   font-size: 13.5px;
 }
 
-/* ---- Printing a page report ----
-   printReport() in app.js adds body.printing-report. Every view is hidden
-   and only #printReportRoot prints, under the letterhead. Navigation,
-   filters and buttons are already hidden by the base print rules. */
+/* ---- Tabs on the Schedules, Rooms, Courses and Faculty Assignments pages ---- */
+
+.page-tabs {
+  display: flex;
+  gap: var(--spacing-sm);
+  background: var(--bg-tertiary);
+  padding: 4px;
+  border-radius: var(--radius-md);
+  width: fit-content;
+  max-width: 100%;
+  flex-wrap: wrap;
+  margin: 0 var(--spacing-lg) var(--spacing-xl);
+}
+
+.page-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.page-tab:hover {
+  color: var(--text-primary);
+}
+
+.page-tab.active {
+  background: white;
+  color: var(--primary);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ---- Report tab on a page: filters, summary line, live table ---- */
+
+.report-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-lg);
+  flex-wrap: wrap;
+  margin-bottom: var(--spacing-lg);
+}
+
+.report-summary {
+  margin: var(--spacing-lg) 0 var(--spacing-md);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.report-live {
+  overflow-x: auto;
+}
+
+/* ---- Print Preview popup ---- */
+
+.modal.modal-xl {
+  max-width: 1100px;
+  max-height: 92vh;
+}
+
+.report-preview-body {
+  background: var(--bg-tertiary);
+}
+
+#reportPreviewDoc {
+  background: white;
+  padding: 24px 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow-x: auto;
+}
+
+/* ---- Report document (shared by the preview and the printout) ---- */
+
+.rp-doc {
+  color: #000;
+}
+
+.rp-header {
+  text-align: center;
+  border-bottom: 2px solid #000;
+  padding-bottom: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+}
+
+.rp-logos {
+  display: flex;
+  justify-content: center;
+  gap: var(--spacing-lg);
+  margin-bottom: var(--spacing-sm);
+}
+
+.rp-logos img {
+  height: 64px;
+  width: 64px;
+  object-fit: contain;
+}
+
+.rp-header h1 {
+  font-size: 20px;
+  font-weight: 800;
+  color: #000;
+  margin: 0;
+}
+
+.rp-header p {
+  font-size: 12.5px;
+  color: #333;
+  margin: 2px 0;
+}
+
+.rp-header h2 {
+  font-size: 15px;
+  font-weight: 700;
+  color: #000;
+  margin: var(--spacing-md) 0 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.rp-header .rp-date {
+  font-size: 11px;
+  color: #555;
+}
+
+/* Course Offering tables, restyled for paper (soft orange title bar, dark header row, no edit column). */
+.rp-doc .offering-block-section {
+  margin-bottom: 14px;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.rp-doc .offering-block-title {
+  background: #f7c98b;
+  color: #5a3a12;
+  border-radius: 8px 8px 0 0;
+  font-size: 10.5pt;
+  padding: 4px 6px;
+  line-height: 1.3;
+}
+
+.rp-doc .offering-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+  font-size: 9.5pt;
+}
+
+.rp-doc .offering-table th,
+.rp-doc .offering-table td {
+  border: none;
+  border-bottom: 1px solid #e3e3e3;
+  padding: 3px 5px;
+  line-height: 1.3;
+  font-size: 9.5pt;
+  vertical-align: middle;
+}
+
+.rp-doc .offering-table thead {
+  display: table-header-group;
+}
+
+.rp-doc .offering-table thead th {
+  background: #6b2f2f;
+  color: #fff;
+  font-size: 8pt;
+  white-space: nowrap;
+  border-bottom: none;
+}
+
+.rp-doc .offering-table tr {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+/* Code, Set, Course Code, Type, Day, Time and Room are short values: keep them on one line. */
+.rp-doc .offering-table td:nth-child(1),
+.rp-doc .offering-table td:nth-child(2),
+.rp-doc .offering-table td:nth-child(3),
+.rp-doc .offering-table td:nth-child(5),
+.rp-doc .offering-table td:nth-child(6),
+.rp-doc .offering-table td:nth-child(7),
+.rp-doc .offering-table td:nth-child(8) {
+  white-space: nowrap;
+}
+
+.rp-doc .instructor-missing {
+  font-size: 8pt;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+/* Timetable grid inside a report: fits the page instead of scrolling. */
+.rp-doc .timetable-wrap {
+  overflow: visible;
+}
+
+.rp-doc .timetable-grid {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+@media (max-width: 768px) {
+  .page-tabs {
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  #reportPreviewDoc {
+    padding: 16px;
+  }
+}
+
+/* ---- Printing ----
+   printReportPreview() in app.js copies the preview into #printReportRoot and
+   adds body.printing-report. Every view is hidden and only that container
+   prints. Navigation, filters and buttons are hidden by the base print rules. */
 @media print {
   body.printing-report {
     -webkit-print-color-adjust: exact;
@@ -3645,11 +3622,10 @@ tbody tr:last-child td {
   body.printing-report .pr-status {
     color: #000;
   }
+
+  body.printing-report .rp-doc .timetable-grid {
+    min-width: 0;
+    zoom: 0.8;
+  }
 }
 
-/* Two Print buttons side by side in a page header (Schedules). */
-.section-header-actions {
-  display: flex;
-  gap: var(--spacing-sm);
-  flex-wrap: wrap;
-}
