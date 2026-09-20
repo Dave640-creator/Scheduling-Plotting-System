@@ -3053,6 +3053,11 @@ window.goToView = goToView;
 
 document.querySelectorAll('.nav-item').forEach((btn) => btn.addEventListener('click', () => goToView(btn.dataset.view)));
 document.querySelectorAll('[data-quick-nav]').forEach((btn) => btn.addEventListener('click', () => goToView(btn.dataset.quickNav)));
+// Dashboard quick actions that open an Add form (Add a Course / Add Faculty / Assign Faculty to Course).
+document.querySelectorAll('[data-quick-open-modal]').forEach((btn) => btn.addEventListener('click', () => {
+  const entity = Object.keys(formConfig).find((k) => formConfig[k].modalId === btn.dataset.quickOpenModal);
+  if (entity) openEntityModal(entity);
+}));
 
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
