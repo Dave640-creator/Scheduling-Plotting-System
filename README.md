@@ -128,6 +128,20 @@ Faculty
 
 Timetables display the scheduled time, course, faculty, room, and SET information and can be printed.
 
+Page Reports
+
+Four more reports print from the page they belong to. Each Print button opens a small popup for the Academic Year, Semester, and any filter that fits that report.
+
+Faculty Assignments page: Faculty Assignments report.
+
+Rooms page: Room Utilization report (classes per room and weekly hours).
+
+Courses page: Unscheduled Courses report (courses assigned to a block or separate SPARE that still lack a Lecture or Laboratory schedule, plus courses not assigned to any block).
+
+Schedules page: Print Incomplete (Incomplete Schedule Assignments report: schedules with no instructor, no room, or neither).
+
+They are built from data already loaded in the browser, so they need no extra API or database changes. Every printout has the school letterhead, the report title, the Academic Year and Semester, the filters used, and the print date. Long lists continue onto more pages with the table header repeated. The sidebar, filters and buttons are never printed.
+
 Course Management
 
 Courses contain:

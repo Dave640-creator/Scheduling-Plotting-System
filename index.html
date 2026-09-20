@@ -184,7 +184,13 @@
       <p>Institute of Computer Studies</p>
       <h2 id="printLetterheadTitle"></h2>
       <p id="printLetterheadSubtitle"></p>
+      <p id="printLetterheadDate" class="print-date"></p>
     </div>
+
+    <!-- Print-only container for the Reports view reports. Empty on screen;
+         printReport() fills it and turns on body.printing-report so it is
+         the only thing printed under the letterhead. -->
+    <div id="printReportRoot" class="print-report-root"></div>
 
     <!-- Dashboard View -->
     <section id="dashboard" class="view active">
@@ -614,9 +620,14 @@
           <h2><i class="fas fa-list-check"></i> Schedule List</h2>
           <p>View and manage all plotted schedules</p>
         </div>
-        <button class="print-btn" onclick="printSchedules()" title="Print this schedule list">
-          <i class="fas fa-print"></i> <span>Print</span>
-        </button>
+        <div class="section-header-actions">
+          <button class="print-btn" onclick="printSchedules()" title="Print this schedule list">
+            <i class="fas fa-print"></i> <span>Print</span>
+          </button>
+          <button class="print-btn" type="button" onclick="openPrintOptions('incompleteAssignments')" title="Print schedules that still need an instructor or a room">
+            <i class="fas fa-print"></i> <span>Print Incomplete</span>
+          </button>
+        </div>
       </div>
       <div class="card no-print">
         <div class="card-header">
@@ -753,6 +764,9 @@
           <h2><i class="fas fa-book"></i> Courses</h2>
           <p>Add and manage courses</p>
         </div>
+        <button class="print-btn" type="button" onclick="openPrintOptions('unscheduledCourses')" title="Print the Unscheduled Courses report">
+          <i class="fas fa-print"></i> <span>Print Unscheduled</span>
+        </button>
       </div>
 
       <div class="card">
@@ -844,6 +858,9 @@
           <h2><i class="fas fa-door-open"></i> Rooms</h2>
           <p>Create and manage classroom resources</p>
         </div>
+        <button class="print-btn" type="button" onclick="openPrintOptions('roomUtilization')" title="Print the Room Utilization report">
+          <i class="fas fa-print"></i> <span>Print Utilization</span>
+        </button>
       </div>
 
       <div class="card">
@@ -870,6 +887,9 @@
           <h2><i class="fas fa-user-tie"></i> Faculty Course Assignments</h2>
           <p>Assign courses to faculty members</p>
         </div>
+        <button class="print-btn" type="button" onclick="openPrintOptions('facultyAssignments')" title="Print the Faculty Assignments report">
+          <i class="fas fa-print"></i> <span>Print</span>
+        </button>
       </div>
 
       <div class="card">
@@ -1166,6 +1186,63 @@
       <div class="modal-footer">
         <button class="btn btn-secondary" type="button" onclick="closeAssignConfirm()"><i class="fas fa-arrow-left"></i> Back</button>
         <button id="assignConfirmSaveBtn" class="btn btn-primary" type="button"><i class="fas fa-check"></i> Confirm &amp; Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Print options popup, shared by the reports that print from their own page
+       (Faculty Assignments, Room Utilization, Unscheduled Courses, Incomplete
+       Schedule Assignments). openPrintOptions() shows only the filters that
+       apply to the report being printed. -->
+  <div class="modal-overlay hidden" id="modalPrintOptions">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h3 id="printOptionsTitle"><i class="fas fa-print"></i> Print Report</h3>
+        <button class="modal-close" type="button" onclick="closePrintOptions()" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <p id="printOptionsDesc" class="field-hint"></p>
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="reportSchoolYear"><i class="fas fa-calendar-week"></i> Academic Year</label>
+            <select id="reportSchoolYear"></select>
+          </div>
+          <div class="form-group" data-report-filter="semester">
+            <label for="reportSemester"><i class="fas fa-calendar"></i> Semester</label>
+            <select id="reportSemester">
+              <option value="">All Semesters</option>
+              <option value="first_semester">First Semester</option>
+              <option value="second_semester">Second Semester</option>
+              <option value="summer">Summer</option>
+            </select>
+          </div>
+          <div class="form-group" data-report-filter="year">
+            <label for="reportYear"><i class="fas fa-graduation-cap"></i> Year Level</label>
+            <select id="reportYear">
+              <option value="">All Year Levels</option>
+              <option value="1">1st Year</option>
+              <option value="2">2nd Year</option>
+              <option value="3">3rd Year</option>
+              <option value="4">4th Year</option>
+            </select>
+          </div>
+          <div class="form-group" data-report-filter="room">
+            <label for="reportRoom"><i class="fas fa-door-open"></i> Room</label>
+            <select id="reportRoom"><option value="">All Rooms</option></select>
+          </div>
+          <div class="form-group" data-report-filter="issue">
+            <label for="reportIssue"><i class="fas fa-triangle-exclamation"></i> Issue</label>
+            <select id="reportIssue">
+              <option value="">All Issues</option>
+              <option value="instructor">Needs Instructor</option>
+              <option value="room">Needs Room</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" type="button" onclick="closePrintOptions()">Cancel</button>
+        <button id="printOptionsConfirmBtn" class="btn btn-primary" type="button"><i class="fas fa-print"></i> Print</button>
       </div>
     </div>
   </div>

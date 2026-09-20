@@ -2175,16 +2175,16 @@ function renderTimetable() {
 function fillPrintLetterhead(title, subtitle) {
   $('printLetterheadTitle').textContent = title;
   $('printLetterheadSubtitle').textContent = subtitle;
+  $('printLetterheadDate').textContent = 'Printed on ' + new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
 function printSchedules() {
-  const parts = [];
-  if (scheduleFilters.schoolYear) parts.push(`AY ${scheduleFilters.schoolYear}`);
-  if (scheduleFilters.semester) {
-    const label = { first_semester: 'First Semester', second_semester: 'Second Semester', summer: 'Summer' }[scheduleFilters.semester] || scheduleFilters.semester;
-    parts.push(label);
-  }
-  if (scheduleFilters.year) parts.push(`Year ${scheduleFilters.year}`);
+  // Academic Year and Semester are always stated, even when the filter is "All".
+  const parts = [
+    scheduleFilters.schoolYear ? `Academic Year ${scheduleFilters.schoolYear}` : 'All Academic Years',
+    scheduleFilters.semester ? (SEMESTER_LABELS[scheduleFilters.semester] || scheduleFilters.semester) : 'All Semesters',
+  ];
+  if (scheduleFilters.year) parts.push(YEAR_LEVEL_LABELS[scheduleFilters.year] || `Year ${scheduleFilters.year}`);
   if (scheduleFilters.target) {
     const { blockId, spareId } = parseTargetValue(scheduleFilters.target);
     const target = blockId ? state.blocks.find((b) => Number(b.id) === blockId) : state.spares.find((sp) => Number(sp.id) === spareId);
@@ -2194,7 +2194,7 @@ function printSchedules() {
     const fac = state.faculty.find((f) => String(f.id) === String(scheduleFilters.faculty));
     if (fac) parts.push(fac.faculty_name);
   }
-  fillPrintLetterhead('Class Schedule', parts.length ? parts.join(' \u2014 ') : 'All Schedules');
+  fillPrintLetterhead('Class Schedule', parts.join(' \u00b7 '));
 
   renderSchedulesTable(true);
   const restore = () => { renderSchedulesTable(false); window.removeEventListener('afterprint', restore); };
@@ -2233,8 +2233,8 @@ function printOffering() {
     programCode,
     YEAR_LEVEL_LABELS[yearLevel] || `Year ${yearLevel}`,
     SEMESTER_LABELS[semester] || semester,
-    `AY ${schoolYear}`,
-  ].join(' \u2014 ');
+    `Academic Year ${schoolYear}`,
+  ].join(' \u00b7 ');
   fillPrintLetterhead('Course Offering', subtitle);
 
   document.body.classList.add('printing-offering');
@@ -2246,6 +2246,411 @@ function printOffering() {
   window.print();
 }
 window.printOffering = printOffering;
+
+/* =====================================================
+   PAGE REPORTS
+   Faculty Assignments (Faculty Assignments page), Room Utilization (Rooms
+   page), Unscheduled Courses (Courses page) and Incomplete Schedule
+   Assignments (Schedules page) each have a Print button that opens a small
+   options popup (Academic Year, Semester, and filters that fit the report).
+   The report is built here from the data already loaded in `state` and
+   printed through the hidden #printReportRoot container.
+
+   Printing works by adding `printing-report` to <body>: the print CSS then
+   hides every view and shows only #printReportRoot under the letterhead.
+   ===================================================== */
+
+const REPORT_META = {
+  facultyAssignments: {
+    title: 'Faculty Assignments',
+    icon: 'fa-user-tie',
+    desc: 'Courses each instructor is assigned to teach.',
+    filters: ['semester', 'year'],
+  },
+  roomUtilization: {
+    title: 'Room Utilization',
+    icon: 'fa-door-open',
+    desc: 'Classes held in each room and the weekly hours they use.',
+    filters: ['semester', 'room'],
+  },
+  unscheduledCourses: {
+    title: 'Unscheduled Courses',
+    icon: 'fa-clipboard-question',
+    desc: 'Courses assigned to a block or SPARE that still have no Lecture or Laboratory schedule.',
+    filters: ['semester', 'year'],
+  },
+  incompleteAssignments: {
+    title: 'Incomplete Schedule Assignments',
+    icon: 'fa-user-slash',
+    desc: 'Plotted schedules that still need an instructor, a room, or both.',
+    filters: ['semester', 'year', 'issue'],
+  },
+};
+
+let activeReport = 'unscheduledCourses';
+
+const COMPONENT_LABELS = { lecture: 'Lecture', laboratory: 'Laboratory' };
+
+function getReportFilters() {
+  return {
+    schoolYear: $('reportSchoolYear').value || suggestedSchoolYear(),
+    semester: $('reportSemester').value,
+    year: $('reportYear').value,
+    room: $('reportRoom').value,
+    issue: $('reportIssue').value,
+  };
+}
+
+function reportSemesterLabel(semester) {
+  return semester ? (SEMESTER_LABELS[semester] || semester) : 'All Semesters';
+}
+
+/** "BSCS 1-Block A" or "BSCS 1-SPARE", the same naming scheduleTargetLabel() uses. */
+function reportTargetLabel(programCode, yearLevel, blockName) {
+  return `${programCode} ${yearLevel}-${blockName || 'SPARE'}`;
+}
+
+function reportScheduleText(s) {
+  return `${formatDayPattern(s.day_of_week)} ${formatTimeDisplay(s.start_time.slice(0, 5))} to ${formatTimeDisplay(s.end_time.slice(0, 5))}`;
+}
+
+function scheduleWeeklyMinutes(s) {
+  const meeting = timeStrToMinutes(s.end_time.slice(0, 5)) - timeStrToMinutes(s.start_time.slice(0, 5));
+  return meeting * scheduleDaysFor(s.day_of_week).length;
+}
+
+function formatReportHours(minutes) {
+  return `${Math.round((minutes / 60) * 100) / 100} hrs`;
+}
+
+function findCourseById(id) {
+  return state.courses.find((c) => Number(c.id) === Number(id)) || null;
+}
+
+/* ---------- Report builders ----------
+   Each returns { title, details: [[label, value]], sections: [{ heading?, note?, columns, rows }], emptyMessage }.
+   A cell is a plain string, or { text, cls } when it needs a style. */
+
+function buildFacultyAssignmentsReport(f) {
+  const rows = state.assignments
+    .map((a) => ({ a, course: findCourseById(a.course_id) }))
+    .filter(({ course }) => course
+      && (!f.semester || course.semester_type === f.semester)
+      && (!f.year || String(course.year_level) === String(f.year)))
+    .sort((x, y) => x.a.faculty_name.localeCompare(y.a.faculty_name) || x.course.course_code.localeCompare(y.course.course_code));
+
+  let lastFaculty = null;
+  const tableRows = rows.map(({ a, course }) => {
+    // Show the instructor's name once, then leave it blank for their other courses.
+    const showName = a.faculty_name !== lastFaculty;
+    lastFaculty = a.faculty_name;
+    return [
+      showName ? { text: a.faculty_name, cls: 'pr-strong' } : '',
+      course.course_code,
+      course.course_title,
+      YEAR_LEVEL_LABELS[course.year_level] || `Year ${course.year_level}`,
+      SEMESTER_LABELS[course.semester_type] || course.semester_type,
+      String(Number(course.lec_units) + Number(course.lab_units)),
+    ];
+  });
+
+  return {
+    title: REPORT_META.facultyAssignments.title,
+    details: [
+      ['Year Level', f.year ? (YEAR_LEVEL_LABELS[f.year] || f.year) : 'All Year Levels'],
+      ['Instructors', String(new Set(rows.map(({ a }) => a.faculty_id)).size)],
+      ['Assignments', String(rows.length)],
+    ],
+    sections: [{ columns: ['Instructor', 'Course Code', 'Course Title', 'Year Level', 'Semester', 'Units'], rows: tableRows }],
+    emptyMessage: 'No faculty course assignments match these filters.',
+  };
+}
+
+function buildRoomUtilizationReport(f) {
+  const rooms = state.rooms
+    .filter((r) => !f.room || String(r.id) === String(f.room))
+    .slice()
+    .sort((a, b) => a.room_name.localeCompare(b.room_name, undefined, { numeric: true }));
+
+  const inScope = state.schedules.filter((s) => s.school_year === f.schoolYear && (!f.semester || s.semester_type === f.semester));
+  const withoutRoom = inScope.filter((s) => !s.room_id).length;
+  const dayIndex = (s) => ALL_WEEKDAYS.indexOf(scheduleDaysFor(s.day_of_week)[0]);
+
+  const perRoom = rooms.map((room) => {
+    const list = inScope
+      .filter((s) => Number(s.room_id) === Number(room.id))
+      .sort((a, b) => dayIndex(a) - dayIndex(b) || a.start_time.localeCompare(b.start_time));
+    return { room, list, minutes: list.reduce((sum, s) => sum + scheduleWeeklyMinutes(s), 0) };
+  });
+
+  const typeLabel = (room) => (room.room_type === 'laboratory' ? 'Laboratory' : 'Lecture');
+  const sections = [{
+    heading: 'Summary',
+    columns: ['Room', 'Type', 'Classes', 'Hours per Week'],
+    rows: perRoom.map(({ room, list, minutes }) => [{ text: room.room_name, cls: 'pr-strong' }, typeLabel(room), String(list.length), list.length ? formatReportHours(minutes) : 'None']),
+  }];
+
+  perRoom.forEach(({ room, list, minutes }) => {
+    sections.push({
+      heading: `${room.room_name} (${typeLabel(room)})`,
+      note: list.length ? `${list.length} class${list.length === 1 ? '' : 'es'}, ${formatReportHours(minutes)} per week` : 'No classes scheduled in this room.',
+      columns: ['Schedule', 'Course', 'Block/SPARE', 'Instructor', 'SET'],
+      rows: list.map((s) => [
+        reportScheduleText(s),
+        courseWithComponent(s),
+        scheduleTargetLabel(s),
+        s.faculty_name || 'Not assigned',
+        String(s.set_type || '').replace('set_', 'SET '),
+      ]),
+    });
+  });
+
+  const room = f.room ? state.rooms.find((r) => String(r.id) === String(f.room)) : null;
+  return {
+    title: REPORT_META.roomUtilization.title,
+    details: [
+      ['Room', room ? room.room_name : 'All Rooms'],
+      ['Rooms Listed', String(rooms.length)],
+      ['Schedules Without a Room', String(withoutRoom)],
+    ],
+    sections,
+    emptyMessage: 'No rooms found.',
+  };
+}
+
+/** "IT 101" for a lecture-only course, "IT 101 (Laboratory)" when the course also has a lab part so the two rows can be told apart. */
+function courseWithComponent(s) {
+  const course = findCourseById(s.course_id);
+  const hasBoth = course && Number(course.lec_units) > 0 && Number(course.lab_units) > 0;
+  return hasBoth ? `${s.course_code} (${COMPONENT_LABELS[s.component] || s.component})` : s.course_code;
+}
+
+function buildUnscheduledCoursesReport(f) {
+  const rows = [];
+
+  const requiredComponents = (course) => [
+    Number(course.lec_units) > 0 ? 'lecture' : null,
+    Number(course.lab_units) > 0 ? 'laboratory' : null,
+  ].filter(Boolean);
+
+  const missingFor = (course, target) => requiredComponents(course).filter((component) => !state.schedules.some((s) =>
+    Number(s.course_id) === Number(course.id)
+    && s.school_year === f.schoolYear
+    && s.component === component
+    && (target.type === 'block' ? Number(s.block_id) === Number(target.id) : Number(s.spare_id) === Number(target.id))));
+
+  const courseMatches = (course) => course
+    && (!f.semester || course.semester_type === f.semester)
+    && (!f.year || String(course.year_level) === String(f.year));
+
+  const pushIfMissing = (course, target, label) => {
+    const missing = missingFor(course, target);
+    if (!missing.length) return;
+    const required = requiredComponents(course).length;
+    rows.push({
+      year: Number(course.year_level),
+      target: label,
+      code: course.course_code,
+      cells: [
+        { text: course.course_code, cls: 'pr-strong' },
+        course.course_title,
+        label,
+        missing.map((c) => COMPONENT_LABELS[c]).join(' and '),
+        missing.length === required ? 'Not plotted' : 'Partly plotted',
+      ],
+    });
+  };
+
+  // Courses assigned to a block (Assign Courses).
+  state.blocks.forEach((b) => {
+    state.blockCourseRows
+      .filter((r) => Number(r.block_id) === Number(b.id))
+      .map((r) => findCourseById(r.course_id))
+      .filter(courseMatches)
+      .forEach((course) => pushIfMissing(course, { type: 'block', id: b.id }, reportTargetLabel(b.program_code, b.year_level, b.block_name)));
+  });
+
+  // Courses given their own SPARE schedule ("join block" allocations attend a block's class, so they are not listed here).
+  state.spares.forEach((sp) => {
+    (sp.allocations || [])
+      .filter((al) => al.allocation_type === 'separate_schedule')
+      .map((al) => findCourseById(al.course_id))
+      .filter(courseMatches)
+      .forEach((course) => pushIfMissing(course, { type: 'spare', id: sp.id }, reportTargetLabel(sp.program_code, sp.year_level, null)));
+  });
+
+  // Courses that are not assigned to any block or SPARE at all.
+  state.courses.filter(courseMatches).forEach((course) => {
+    const inBlock = state.blockCourseRows.some((r) => Number(r.course_id) === Number(course.id));
+    const inSpare = state.spares.some((sp) => (sp.allocations || []).some((al) => Number(al.course_id) === Number(course.id) && al.allocation_type === 'separate_schedule'));
+    if (inBlock || inSpare) return;
+    rows.push({
+      year: Number(course.year_level),
+      target: '',
+      code: course.course_code,
+      cells: [{ text: course.course_code, cls: 'pr-strong' }, course.course_title, 'Not assigned', requiredComponents(course).map((c) => COMPONENT_LABELS[c]).join(' and '), 'Not assigned to a block'],
+    });
+  });
+
+  rows.sort((a, b) => a.year - b.year || a.target.localeCompare(b.target) || a.code.localeCompare(b.code));
+
+  const columns = ['Course Code', 'Course Title', 'Block/SPARE', 'Missing', 'Status'];
+  const sections = [...new Set(rows.map((r) => r.year))].map((year) => {
+    const yearRows = rows.filter((r) => r.year === year);
+    return { heading: YEAR_LEVEL_LABELS[year] || `Year ${year}`, note: `${yearRows.length} item${yearRows.length === 1 ? '' : 's'}`, columns, rows: yearRows.map((r) => r.cells) };
+  });
+
+  return {
+    title: REPORT_META.unscheduledCourses.title,
+    details: [
+      ['Year Level', f.year ? (YEAR_LEVEL_LABELS[f.year] || f.year) : 'All Year Levels'],
+      ['Items Needing a Schedule', String(rows.length)],
+    ],
+    sections,
+    emptyMessage: 'Every course is fully scheduled for this selection.',
+  };
+}
+
+function buildIncompleteAssignmentsReport(f) {
+  const ISSUE_LABELS = { instructor: 'Needs Instructor', room: 'Needs Room', both: 'Needs Instructor & Room' };
+  const issueOf = (s) => {
+    const noInstructor = !s.faculty_id;
+    const noRoom = !s.room_id;
+    if (noInstructor && noRoom) return 'both';
+    return noInstructor ? 'instructor' : (noRoom ? 'room' : null);
+  };
+  const matchesIssueFilter = (issue) => !f.issue
+    || (f.issue === 'instructor' && (issue === 'instructor' || issue === 'both'))
+    || (f.issue === 'room' && (issue === 'room' || issue === 'both'));
+
+  const rows = state.schedules
+    .filter((s) => s.school_year === f.schoolYear
+      && (!f.semester || s.semester_type === f.semester)
+      && (!f.year || String(s.year_level) === String(f.year)))
+    .map((s) => ({ s, issue: issueOf(s) }))
+    .filter(({ issue }) => issue && matchesIssueFilter(issue))
+    .sort((a, b) => Number(a.s.year_level) - Number(b.s.year_level)
+      || scheduleTargetLabel(a.s).localeCompare(scheduleTargetLabel(b.s))
+      || a.s.course_code.localeCompare(b.s.course_code));
+
+  const issueFilterLabel = { '': 'All Issues', instructor: 'Needs Instructor', room: 'Needs Room' }[f.issue];
+  return {
+    title: REPORT_META.incompleteAssignments.title,
+    details: [
+      ['Year Level', f.year ? (YEAR_LEVEL_LABELS[f.year] || f.year) : 'All Year Levels'],
+      ['Issue', issueFilterLabel],
+      ['Schedules Listed', String(rows.length)],
+    ],
+    sections: [{
+      columns: ['Course', 'Block/SPARE', 'Schedule', 'Instructor', 'Room', 'Status'],
+      rows: rows.map(({ s, issue }) => [
+        { text: courseWithComponent(s), cls: 'pr-strong' },
+        scheduleTargetLabel(s),
+        reportScheduleText(s),
+        s.faculty_name || 'Not assigned',
+        s.room_name || 'TBA',
+        { text: ISSUE_LABELS[issue], cls: 'pr-status' },
+      ]),
+    }],
+    emptyMessage: 'No incomplete schedule assignments for this selection.',
+  };
+}
+
+function buildReport(key) {
+  const f = getReportFilters();
+  if (key === 'facultyAssignments') return buildFacultyAssignmentsReport(f);
+  if (key === 'roomUtilization') return buildRoomUtilizationReport(f);
+  if (key === 'incompleteAssignments') return buildIncompleteAssignmentsReport(f);
+  return buildUnscheduledCoursesReport(f);
+}
+
+/** Turns a report object into HTML. Used for both the on-screen preview and the print container. */
+function renderReportHtml(report) {
+  const cellHtml = (cell) => {
+    if (cell && typeof cell === 'object') return `<td class="${cell.cls || ''}">${escapeHtml(cell.text)}</td>`;
+    return `<td>${escapeHtml(cell)}</td>`;
+  };
+
+  const details = report.details
+    .map(([label, value]) => `<div class="pr-detail"><span>${escapeHtml(label)}:</span> <strong>${escapeHtml(value)}</strong></div>`)
+    .join('');
+
+  const hasRows = report.sections.some((sec) => sec.rows.length);
+  if (!hasRows) {
+    return `<div class="pr-details">${details}</div><p class="pr-empty">${escapeHtml(report.emptyMessage)}</p>`;
+  }
+
+  const sections = report.sections.map((sec) => {
+    const heading = sec.heading ? `<h3 class="pr-section-title">${escapeHtml(sec.heading)}</h3>` : '';
+    const note = sec.note ? `<p class="pr-note">${escapeHtml(sec.note)}</p>` : '';
+    if (!sec.rows.length) return `<section class="pr-section">${heading}${note}</section>`;
+    const head = sec.columns.map((c) => `<th>${escapeHtml(c)}</th>`).join('');
+    const body = sec.rows.map((row) => `<tr>${row.map(cellHtml).join('')}</tr>`).join('');
+    return `<section class="pr-section">${heading}${note}<table class="pr-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></section>`;
+  }).join('');
+
+  return `<div class="pr-details">${details}</div>${sections}`;
+}
+
+/* ---------- Reports view (screen) ---------- */
+
+function renderReportSelectors() {
+  const prevYear = $('reportSchoolYear').value;
+  const prevRoom = $('reportRoom').value;
+  const years = new Set(state.schedules.map((s) => s.school_year));
+  years.add(suggestedSchoolYear());
+  const sorted = [...years].sort().reverse();
+  $('reportSchoolYear').innerHTML = sorted.map((sy) => `<option value="${escapeHtml(sy)}">${escapeHtml(sy)}</option>`).join('');
+  $('reportSchoolYear').value = sorted.includes(prevYear) ? prevYear : suggestedSchoolYear();
+
+  const rooms = state.rooms.slice().sort((a, b) => a.room_name.localeCompare(b.room_name, undefined, { numeric: true }));
+  $('reportRoom').innerHTML = '<option value="">All Rooms</option>' + rooms.map((r) => `<option value="${r.id}">${escapeHtml(r.room_name)}</option>`).join('');
+  if (rooms.some((r) => String(r.id) === prevRoom)) $('reportRoom').value = prevRoom;
+}
+
+/* ---------- Print options popup ---------- */
+
+function openPrintOptions(key) {
+  if (!REPORT_META[key]) return;
+  activeReport = key;
+  const meta = REPORT_META[key];
+  $('printOptionsTitle').innerHTML = `<i class="fas fa-print"></i> Print ${escapeHtml(meta.title)}`;
+  $('printOptionsDesc').textContent = meta.desc;
+  renderReportSelectors();
+  // Only show the filters that apply to this report.
+  document.querySelectorAll('#modalPrintOptions [data-report-filter]').forEach((el) => {
+    el.classList.toggle('hidden', !meta.filters.includes(el.dataset.reportFilter));
+  });
+  $('modalPrintOptions').classList.remove('hidden');
+}
+window.openPrintOptions = openPrintOptions;
+
+function closePrintOptions() {
+  $('modalPrintOptions').classList.add('hidden');
+}
+window.closePrintOptions = closePrintOptions;
+
+$('printOptionsConfirmBtn').addEventListener('click', () => {
+  closePrintOptions();
+  printReport(activeReport);
+});
+
+/** Prints one of the four page-level reports using the filters chosen in the print options popup. */
+function printReport(key = activeReport) {
+  const report = buildReport(key);
+  const f = getReportFilters();
+  fillPrintLetterhead(report.title, `Academic Year ${f.schoolYear} \u00b7 ${reportSemesterLabel(f.semester)}`);
+  $('printReportRoot').innerHTML = renderReportHtml(report);
+  document.body.classList.add('printing-report');
+  const restore = () => {
+    document.body.classList.remove('printing-report');
+    $('printReportRoot').innerHTML = '';
+    window.removeEventListener('afterprint', restore);
+  };
+  window.addEventListener('afterprint', restore);
+  window.print();
+}
+window.printReport = printReport;
 
 document.querySelectorAll('.timetable-tab').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -3328,6 +3733,7 @@ document.querySelectorAll('[data-quick-open-modal]').forEach((btn) => btn.addEve
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (!$('confirmOverlay').classList.contains('hidden')) { closeConfirm(false); return; }
+  if (!$('modalPrintOptions').classList.contains('hidden')) { closePrintOptions(); return; }
   if (!$('modalAssignConfirm').classList.contains('hidden')) { closeAssignConfirm(); return; }
   if (!$('modalInstructorConflict').classList.contains('hidden')) { closeInstructorConflictModal(); return; }
   Object.keys(formConfig).forEach((entity) => {
