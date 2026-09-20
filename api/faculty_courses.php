@@ -24,6 +24,48 @@ try {
     }
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $d = input_json();
+
+        // Bulk assign: { faculty_id, course_ids: [1,2,3] }. All-or-nothing in
+        // one transaction; courses the faculty already has are skipped (and
+        // reported back) instead of failing the whole batch.
+        if (isset($d['course_ids']) && is_array($d['course_ids'])) {
+            require_fields($d, ['faculty_id']);
+            $facultyId = (int)$d['faculty_id'];
+            $courseIds = array_values(array_unique(array_filter(array_map('intval', $d['course_ids']), fn($v) => $v > 0)));
+            if (!$courseIds) json_response(false, 'Pick at least one course to assign.', null, 422);
+
+            $facultyStmt = $pdo->prepare('SELECT id FROM faculty WHERE id=?');
+            $facultyStmt->execute([$facultyId]);
+            if (!$facultyStmt->fetch()) json_response(false, 'Faculty not found.', null, 404);
+
+            $placeholders = implode(',', array_fill(0, count($courseIds), '?'));
+            $coursesStmt = $pdo->prepare("SELECT id, course_code FROM courses WHERE id IN ($placeholders)");
+            $coursesStmt->execute($courseIds);
+            $codesById = [];
+            foreach ($coursesStmt->fetchAll() as $row) $codesById[(int)$row['id']] = $row['course_code'];
+            if (count($codesById) !== count($courseIds)) json_response(false, 'One or more selected courses no longer exist. Refresh and try again.', null, 404);
+
+            $haveStmt = $pdo->prepare('SELECT course_id FROM faculty_courses WHERE faculty_id=?');
+            $haveStmt->execute([$facultyId]);
+            $have = array_map('intval', array_column($haveStmt->fetchAll(), 'course_id'));
+
+            $toAdd = array_values(array_diff($courseIds, $have));
+            $skipped = [];
+            foreach (array_intersect($courseIds, $have) as $id) $skipped[] = $codesById[$id];
+            if (!$toAdd) json_response(false, 'Already assigned to this faculty: ' . implode(', ', $skipped) . '.', null, 422);
+
+            $pdo->beginTransaction();
+            try {
+                $insert = $pdo->prepare('INSERT INTO faculty_courses(faculty_id,course_id) VALUES(?,?)');
+                foreach ($toAdd as $id) $insert->execute([$facultyId, $id]);
+                $pdo->commit();
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                throw $e;
+            }
+            json_response(true, count($toAdd) . ' course(s) assigned to faculty', ['added' => count($toAdd), 'skipped' => $skipped], 201);
+        }
+
         require_fields($d, ['faculty_id','course_id']);
         $facultyId = (int)$d['faculty_id'];
         $courseId = (int)$d['course_id'];

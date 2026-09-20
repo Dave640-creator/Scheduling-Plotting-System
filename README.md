@@ -278,29 +278,27 @@ CSV templates can be obtained from the Import interface.
 
 The backend is the authoritative source for schedule validation. The frontend also provides live/advisory conflict feedback while entering a schedule.
 
-Weekly Unit Rule
+Schedule Duration Rule
 
-This system uses:
+Schedule duration is NOT derived from course units.
 
-1 unit = 1 hour per week
+Units stay on the course as academic information only. When plotting, the scheduler picks:
 
-This applies to both:
+Day Pattern
 
-Lecture units
+Start Time
 
-Laboratory units
+Duration per day (applies to every selected meeting day)
 
-The system does not use the common 1 laboratory unit = 3 hours rule.
+End Time is computed automatically: Start Time + Duration per day.
 
 Examples:
 
-3 units = 3 hours/week
+Regular semester: 3 units, M/W/F, 8:00 AM to 9:00 AM (1 hour per meeting day)
 
-M/W/F × 1 hour = 3 hours/week
+Summer: 3 units, M/T/W/Th/F, 8:00 AM to 11:00 AM (3 hours per meeting day)
 
-T/Th × 1.5 hours = 3 hours/week
-
-The selected day pattern and duration must total the required weekly hours exactly.
+The system does not assume 3 units = 3 hours/week and does not restrict the selectable duration by units. Its job is to check schedule conflicts (instructor, block, room) and basic input rules. If the school needs a contact-hour rule for a specific course or term, it should be added as its own explicit validation rule.
 
 Valid Days
 
@@ -762,11 +760,7 @@ It can be used as a reference when deciding whether a SPARE allocation is necess
 
 Laboratory Hours
 
-Laboratory units are treated exactly like lecture units for weekly-hour validation:
-
-1 lab unit = 1 hour/week
-
-There is no automatic laboratory ×3 conversion.
+Laboratory units are academic information only, the same as lecture units. They decide whether a Laboratory component must be plotted, not how long it runs. The duration is chosen per component when plotting.
 
 SPARE
 
@@ -875,3 +869,27 @@ Course → Faculty → Block/SPARE → Course Assignment → Schedule Plotting �
 The current data model is based on Blocks + SPARE, not the previous Section model.
 
 For a clean installation, use the current database/ics_plotting.sql schema and configure the MySQL port in api/config.php to match the local XAMPP installation.
+
+## Room Is Optional While Plotting (2026-09-20)
+
+Like the instructor, a room can be assigned later. A schedule with no room saves normally and shows an amber "No room yet" warning (Course Offering table, Schedules table, Dashboard "Needs Attention"). A **room conflict** (same room double-booked, SET rules unchanged) and the room rules (active room, lecture room for lectures, lab room for labs) only apply once a room is actually chosen.
+
+This is already built into `database/ics_plotting.sql` (`schedules.room_id` is nullable); no migration is needed -- just import that one file.
+
+## Faculty Assignments: Multi-Select (2026-09-20)
+
+Faculty Assignments -> **Assign** now works like this:
+
+1. Pick the **Instructor**.
+2. Use the **1st / 2nd / 3rd / 4th Year** chips (or All) to filter the course list, and the filter box to search by code/title. Picks are kept when you switch years.
+3. Tick as many courses as needed (courses the instructor already has are ticked and locked). "Select all shown" / "Clear" help with bulk picking.
+4. Click **Add (n)** -> a confirmation step lists the picked courses; uncheck any mistakes, then **Confirm & Save**. Or turn on **Save directly (skip confirmation)** (remembered in the browser) to save straight from Add.
+
+Editing an existing assignment (pencil icon) reuses the same list in single-choice mode. The API accepts `{ faculty_id, course_ids: [...] }` on `POST api/faculty_courses.php` (all-or-nothing transaction; already-assigned courses are skipped and reported). The old single `{ faculty_id, course_id }` form still works.
+
+## Faculty Assignments Table + Instructor Picker (2026-09-20)
+
+- **Faculty Course Assignments** now shows each instructor **once**. The **View n courses** button expands that instructor's courses (with edit/remove per course); **+** opens the Assign modal with that instructor already chosen. Searching a course code still finds the instructor.
+- **Plot Schedule -> Instructor** lists **every active instructor**. Instructors assigned to the selected course are marked with a check mark and grouped first; everyone else is under "Other instructors". Being assigned to the course is only an indicator, never a restriction.
+- Picking an instructor who is **not** assigned to the course shows an optional tick-box: **"Also assign <name> to <course>"**. Ticked -> they are added to Faculty Course Assignments when the schedule is saved. Unticked -> the schedule is still saved with that instructor and the assignments list is left alone.
+- No database change is needed for this.

@@ -146,10 +146,9 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
             json_response(false, 'Select at least one valid day of the week.', null, 422);
         }
         // The frontend's checkbox UI can't submit the same day twice, but a
-        // direct API call could send e.g. "Monday,Monday,Wednesday". Without
-        // this check, the duplicate would inflate $dayCount below and let a
-        // schedule pass the weekly-hours requirement with fewer distinct
-        // meeting days than actually required (bug #12).
+        // direct API call could send e.g. "Monday,Monday,Wednesday". Duplicate
+        // days would make the day pattern ambiguous (and inflate any
+        // per-week totals shown or computed from it), so reject them (bug #12).
         if (count($submittedDays) !== count(array_unique($submittedDays))) {
             json_response(false, 'Duplicate days are not allowed in the day pattern.', null, 422);
         }
@@ -211,42 +210,15 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
         json_response(false, 'This course has no laboratory component.', null, 422);
     }
 
-    // Single source of truth for weekly-hour requirements in this app:
-    // 1 UNIT = 1 HOUR PER WEEK, for BOTH lecture and laboratory units. This
-    // deliberately does NOT follow the common college rule of "1 laboratory
-    // unit = 3 hours"; that rule does not apply here. A 3-unit course is
-    // required to total 3 hours/week regardless of component -- e.g. MWF x
-    // 1 hour = 3 hours/week, or TTH x 1.5 hours = 3 hours/week. Mirrored in
-    // assets/js/app.js's componentRequiredWeeklyMinutes() -- keep both in
-    // sync if this ever changes.
-    // $dayCount must always come from the actual parsed day list -- the
-    // frontend's "Custom Days" picker sends the real selected days as a
-    // comma-separated list (e.g. "Monday,Wednesday,Friday"), never the
-    // literal string 'Custom', so a stale special-case forcing dayCount to
-    // 1 for that literal would silently undercount a direct API call's
-    // Custom Days weekly hours (e.g. Mon/Wed/Fri x 1 hour must be 3
-    // hours/week, not 1).
-    $meetingMinutes = minutes_between($start, $end);
-    $dayCount = count(schedule_days($d['day_of_week']));
-    $weeklyMinutes = $meetingMinutes * $dayCount;
-
-    $requiredMinutes = $d['component'] === 'laboratory'
-        ? (int)((float)$course['lab_units'] * 60)
-        : (int)((float)$course['lec_units'] * 60);
-
-    // The schedule must MATCH the required weekly hours exactly -- not just
-    // meet or exceed them. A 2-unit course scheduled for 3 hours/week (e.g.
-    // MWF x 1 hour when only TTH x 1 hour is correct) is just as invalid as
-    // one scheduled for too little, so this checks !=, not just <.
-    if ($weeklyMinutes !== $requiredMinutes) {
-        $tooShort = $weeklyMinutes < $requiredMinutes;
-        json_response(
-            false,
-            'Schedule does not meet the required weekly hours. Required: ' . ($requiredMinutes / 60) . ' hour(s) per week. Selected pattern totals ' . ($weeklyMinutes / 60) . ' hour(s) per week (' . ($tooShort ? 'too short' : 'exceeds the requirement') . ').',
-            null,
-            422
-        );
-    }
+    // Schedule duration is NOT derived from course units. The plotter picks
+    // the Day Pattern, Start Time and Duration per day (End Time is just
+    // Start + Duration), so the same 3-unit course can be MWF x 1 hour in a
+    // regular semester and Mon-Fri x 3 hours in summer. Units stay as plain
+    // academic info on the course. This endpoint only guards against invalid
+    // input (end after start, valid days) and schedule conflicts below.
+    // If the school ever needs a contact-hour rule for a specific course or
+    // term, add it here as its own explicit validation, not as a units x 60
+    // formula.
 
     $faculty = null;
     if ($facultyId !== null) {
@@ -255,11 +227,10 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
         $faculty = $facultyStmt->fetch();
         if (!$faculty) json_response(false, 'Faculty not found.', null, 404);
 
-        $allowedStmt = $pdo->prepare('SELECT COUNT(*) FROM faculty_courses WHERE faculty_id=? AND course_id=?');
-        $allowedStmt->execute([$facultyId, (int)$d['course_id']]);
-        if ((int)$allowedStmt->fetchColumn() === 0) {
-            json_response(false, 'Faculty is not assigned/allowed to teach this course. Assign the course to the faculty first in Faculty Courses.', null, 422);
-        }
+        // NOTE: the faculty does NOT have to be assigned to this course in
+        // Faculty Course Assignments. Any active instructor can be picked;
+        // the scheduler may optionally tick "also assign" (see
+        // ensure_faculty_course()), or just use them for this schedule.
     }
 
     // Instructor consistency + duplicate-component check: a course's Lecture
@@ -362,19 +333,11 @@ function validate_schedule(PDO $pdo, array $d, ?int $ignoreId = null): void {
         }
     }
 
-    // SET logic: SET 0 is always face-to-face, so a room is required. SET 1
-    // and SET 2 are hybrid, NOT permanently online -- they still have a
-    // face-to-face week every other week, so a room is required for them
-    // too. The system stores the set but does not simulate week-by-week
-    // online/F2F rotation; the room on file is the one used during that
-    // component's F2F weeks.
+    // Room is OPTIONAL while plotting: a schedule can be saved with no room
+    // yet (the UI shows a "No room yet" warning). Every room-specific rule
+    // below (active room, room type, room conflict) only runs when a room is
+    // actually chosen, so a missing room is never a conflict or an error.
     $hasRoom = !empty($d['room_id']);
-    if (!$hasRoom) {
-        $roomRequiredReason = $d['set_type'] === 'set_0'
-            ? 'Room is required for SET 0 because it is always face-to-face.'
-            : 'Room is required for ' . (SET_TYPE_LABELS[$d['set_type']] ?? $d['set_type']) . ' because it still meets face-to-face during its F2F week.';
-        json_response(false, $roomRequiredReason, null, 422);
-    }
 
     $room = null;
     if ($hasRoom) {
@@ -463,6 +426,21 @@ function insert_schedule(PDO $pdo, array $d): int {
     $stmt = $pdo->prepare('INSERT INTO schedules(course_id,block_id,spare_id,faculty_id,room_id,component,delivery_mode,set_type,school_year,day_of_week,start_time,end_time,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
     $stmt->execute([(int)$d['course_id'],$blockId,$spareId,$facultyId,$roomId,$d['component'],$deliveryMode,$d['set_type'],$d['school_year'],$d['day_of_week'],$d['start_time'],$d['end_time'],$d['notes'] ?? null]);
     return (int)$pdo->lastInsertId();
+}
+
+/**
+ * Optional: make sure the faculty is also listed under this course in
+ * Faculty Course Assignments (faculty_courses). Only called when the
+ * scheduler ticked "also assign". Safe to call repeatedly.
+ */
+function ensure_faculty_course(PDO $pdo, $facultyId, int $courseId): void {
+    $facultyId = (int)$facultyId;
+    if ($facultyId <= 0) return;
+    $has = $pdo->prepare('SELECT COUNT(*) FROM faculty_courses WHERE faculty_id=? AND course_id=?');
+    $has->execute([$facultyId, $courseId]);
+    if ((int)$has->fetchColumn() > 0) return;
+    $ins = $pdo->prepare('INSERT INTO faculty_courses(faculty_id, course_id) VALUES(?, ?)');
+    $ins->execute([$facultyId, $courseId]);
 }
 
 function update_schedule(PDO $pdo, array $d, int $id): void {
@@ -619,6 +597,9 @@ function save_subject_offering(PDO $pdo, array $body): array {
             $results[] = ['id' => $newId, 'component' => $c['component'], 'action' => 'created'];
         }
     }
+    if (!empty($body['assign_faculty_to_course']) && !empty($body['faculty_id'])) {
+        ensure_faculty_course($pdo, $body['faculty_id'], (int)$body['course_id']);
+    }
     $pdo->commit();
 
     return ['course_code' => $course['course_code'], 'components' => $results];
@@ -666,6 +647,7 @@ try {
         $d = input_json();
         validate_schedule($pdo, $d);
         $newId = insert_schedule($pdo, $d);
+        if (!empty($d['assign_faculty_to_course'])) ensure_faculty_course($pdo, $d['faculty_id'] ?? 0, (int)$d['course_id']);
         json_response(true, 'Schedule plotted successfully', ['id' => $newId], 201);
     }
 
@@ -680,6 +662,7 @@ try {
 
         validate_schedule($pdo, $d, $id);
         update_schedule($pdo, $d, $id);
+        if (!empty($d['assign_faculty_to_course'])) ensure_faculty_course($pdo, $d['faculty_id'] ?? 0, (int)$d['course_id']);
         json_response(true, 'Schedule updated successfully');
     }
 

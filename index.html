@@ -379,6 +379,10 @@
                 <option value="">Select course first</option>
               </select>
               <p class="field-hint" id="facultyHint">🔒 Select a course first. Instructor is optional.</p>
+              <label class="assign-also hidden" id="assignAlsoWrap">
+                <input type="checkbox" id="assignAlsoCheck" />
+                <span id="assignAlsoText"></span>
+              </label>
             </div>
           </div>
 
@@ -438,7 +442,7 @@
                 </div>
 
                 <div class="form-group">
-                  <label for="scheduleDuration_lecture"><i class="fas fa-hourglass-half"></i> Duration <span class="required">*</span></label>
+                  <label for="scheduleDuration_lecture"><i class="fas fa-hourglass-half"></i> Duration per day <span class="required">*</span></label>
                   <select id="scheduleDuration_lecture" required>
                     <option value="30">30 Minutes</option>
                     <option value="60" selected>1 Hour</option>
@@ -446,8 +450,13 @@
                     <option value="120">2 Hours</option>
                     <option value="150">2 Hours 30 Minutes</option>
                     <option value="180">3 Hours</option>
+                    <option value="210">3 Hours 30 Minutes</option>
+                    <option value="240">4 Hours</option>
+                    <option value="270">4 Hours 30 Minutes</option>
+                    <option value="300">5 Hours</option>
                     <option value="custom">Custom (set end time manually)</option>
                   </select>
+                  <p class="field-hint" id="durationPerDayHint_lecture">Applies to each selected meeting day. It is not tied to the course units.</p>
                   <p class="field-hint hidden" id="customDurationHint_lecture">Custom: pick your own End Time below instead of a fixed duration.</p>
                 </div>
 
@@ -461,7 +470,7 @@
                 </div>
 
                 <div class="form-group">
-                  <label for="scheduleRoom_lecture"><i class="fas fa-door-open"></i> Room <span class="required hidden" id="roomRequiredMark_lecture">*</span></label>
+                  <label for="scheduleRoom_lecture"><i class="fas fa-door-open"></i> Room <span class="optional-tag">(optional)</span> <span class="required hidden" id="roomRequiredMark_lecture">*</span></label>
                   <select id="scheduleRoom_lecture"></select>
                   <p class="field-hint hidden" id="roomRequiredHint_lecture"></p>
                 </div>
@@ -525,7 +534,7 @@
                 </div>
 
                 <div class="form-group">
-                  <label for="scheduleDuration_laboratory"><i class="fas fa-hourglass-half"></i> Duration <span class="required">*</span></label>
+                  <label for="scheduleDuration_laboratory"><i class="fas fa-hourglass-half"></i> Duration per day <span class="required">*</span></label>
                   <select id="scheduleDuration_laboratory" required>
                     <option value="30">30 Minutes</option>
                     <option value="60" selected>1 Hour</option>
@@ -533,8 +542,13 @@
                     <option value="120">2 Hours</option>
                     <option value="150">2 Hours 30 Minutes</option>
                     <option value="180">3 Hours</option>
+                    <option value="210">3 Hours 30 Minutes</option>
+                    <option value="240">4 Hours</option>
+                    <option value="270">4 Hours 30 Minutes</option>
+                    <option value="300">5 Hours</option>
                     <option value="custom">Custom (set end time manually)</option>
                   </select>
+                  <p class="field-hint" id="durationPerDayHint_laboratory">Applies to each selected meeting day. It is not tied to the course units.</p>
                   <p class="field-hint hidden" id="customDurationHint_laboratory">Custom: pick your own End Time below instead of a fixed duration.</p>
                 </div>
 
@@ -548,7 +562,7 @@
                 </div>
 
                 <div class="form-group">
-                  <label for="scheduleRoom_laboratory"><i class="fas fa-door-open"></i> Room <span class="required hidden" id="roomRequiredMark_laboratory">*</span></label>
+                  <label for="scheduleRoom_laboratory"><i class="fas fa-door-open"></i> Room <span class="optional-tag">(optional)</span> <span class="required hidden" id="roomRequiredMark_laboratory">*</span></label>
                   <select id="scheduleRoom_laboratory"></select>
                   <p class="field-hint hidden" id="roomRequiredHint_laboratory"></p>
                 </div>
@@ -1094,52 +1108,64 @@
   </div>
 
   <div class="modal-overlay hidden" id="modalAssignment">
-    <div class="modal modal-sm">
+    <div class="modal modal-assign">
       <div class="modal-header">
-        <h3><i class="fas fa-user-tie"></i> <span id="modalAssignmentTitle">Assign Course to Faculty</span></h3>
+        <h3><i class="fas fa-user-tie"></i> <span id="modalAssignmentTitle">Assign Courses to Faculty</span></h3>
         <button class="modal-close" type="button" onclick="requestCloseEntityModal('assignments')" aria-label="Close dialog"><i class="fas fa-xmark"></i></button>
       </div>
       <div class="modal-body">
-        <form id="facultyCourseForm" class="form-grid">
+        <form id="facultyCourseForm" class="assign-form" novalidate>
           <div class="form-group">
-            <label for="assignFaculty"><i class="fas fa-chalkboard-user"></i> Faculty <span class="required">*</span></label>
+            <label for="assignFaculty"><i class="fas fa-chalkboard-user"></i> Instructor <span class="required">*</span></label>
             <select id="assignFaculty" required></select>
           </div>
+
           <div class="form-group">
-            <label for="assignYearLevel"><i class="fas fa-graduation-cap"></i> Year Level <span class="required">*</span></label>
-            <select id="assignYearLevel" required>
-              <option value="">Select year level</option>
-              <option value="1">1st Year</option>
-              <option value="2">2nd Year</option>
-              <option value="3">3rd Year</option>
-              <option value="4">4th Year</option>
-            </select>
+            <label><i class="fas fa-graduation-cap"></i> Year Level</label>
+            <div class="year-chips" id="assignYearChips" role="group" aria-label="Filter courses by year level"></div>
           </div>
+
           <div class="form-group">
-            <label for="assignCourseSearch"><i class="fas fa-book"></i> Course <span class="required">*</span></label>
-            <div class="combobox" id="assignCourseCombobox">
-              <input
-                type="text"
-                id="assignCourseSearch"
-                class="combobox-input"
-                autocomplete="off"
-                role="combobox"
-                aria-expanded="false"
-                aria-controls="assignCourseList"
-                aria-autocomplete="list"
-                placeholder="Select a year level first"
-                disabled />
-              <select id="assignCourse" class="combobox-source" required tabindex="-1" aria-hidden="true"></select>
-              <div class="combobox-panel hidden" id="assignCourseList" role="listbox"></div>
+            <div class="assign-list-head">
+              <label for="assignCourseFilter"><i class="fas fa-book"></i> Courses <span class="assign-count" id="assignSelectedCount">0 selected</span></label>
+              <div class="assign-list-actions">
+                <button type="button" class="btn btn-secondary btn-sm" id="assignSelectAllBtn">Select all shown</button>
+                <button type="button" class="btn btn-secondary btn-sm" id="assignClearBtn">Clear</button>
+              </div>
             </div>
+            <input type="text" id="assignCourseFilter" class="assign-filter" placeholder="Filter by code or title..." autocomplete="off" />
+            <div class="assign-course-grid" id="assignCourseChecklist"></div>
+            <p class="field-hint">Courses this instructor already has are ticked and locked. Your picks are kept when you switch year level.</p>
           </div>
         </form>
       </div>
-      <div class="modal-footer">
+      <div class="modal-footer assign-footer">
+        <label class="assign-direct" id="assignDirectWrap" title="Skips the review step and saves right away when you click Add.">
+          <input type="checkbox" id="assignDirectSave" /> Save directly (skip confirmation)
+        </label>
         <button class="btn btn-secondary" type="button" onclick="requestCloseEntityModal('assignments')">Cancel</button>
         <button id="assignmentSubmitBtn" class="btn btn-primary" type="submit" form="facultyCourseForm">
-          <i class="fas fa-plus"></i> Assign
+          <i class="fas fa-plus"></i> Add
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirmation step for Faculty Assignments: review the picked courses,
+       uncheck any mistakes, then Confirm & Save. -->
+  <div class="modal-overlay hidden" id="modalAssignConfirm">
+    <div class="modal">
+      <div class="modal-header">
+        <h3><i class="fas fa-clipboard-check"></i> Confirm Assignment</h3>
+        <button class="modal-close" type="button" onclick="closeAssignConfirm()" aria-label="Back to course list"><i class="fas fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <p id="assignConfirmIntro" class="assign-confirm-intro"></p>
+        <div class="checklist" id="assignConfirmList"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" type="button" onclick="closeAssignConfirm()"><i class="fas fa-arrow-left"></i> Back</button>
+        <button id="assignConfirmSaveBtn" class="btn btn-primary" type="button"><i class="fas fa-check"></i> Confirm &amp; Save</button>
       </div>
     </div>
   </div>

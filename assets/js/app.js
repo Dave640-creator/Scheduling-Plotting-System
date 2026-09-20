@@ -23,7 +23,7 @@ const formConfig = {
   courses:     { formId: 'courseForm',        submitBtnId: 'courseSubmitBtn',   cancelBtnId: null,               addLabel: '<i class="fas fa-plus"></i> Add Course',    editLabel: '<i class="fas fa-check"></i> Update Course',    modalId: 'modalCourse',     modalTitleId: 'modalCourseTitle',   addTitle: 'Add Course',    editTitle: 'Edit Course' },
   faculty:     { formId: 'facultyForm',       submitBtnId: 'facultySubmitBtn',  cancelBtnId: null,               addLabel: '<i class="fas fa-plus"></i> Add Faculty',   editLabel: '<i class="fas fa-check"></i> Update Faculty',   modalId: 'modalFaculty',    modalTitleId: 'modalFacultyTitle',  addTitle: 'Add Faculty',   editTitle: 'Edit Faculty' },
   rooms:       { formId: 'roomForm',          submitBtnId: 'roomSubmitBtn',     cancelBtnId: null,               addLabel: '<i class="fas fa-plus"></i> Add Room',      editLabel: '<i class="fas fa-check"></i> Update Room',      modalId: 'modalRoom',       modalTitleId: 'modalRoomTitle',     addTitle: 'Add Room',      editTitle: 'Edit Room' },
-  assignments: { formId: 'facultyCourseForm', submitBtnId: 'assignmentSubmitBtn', cancelBtnId: null,             addLabel: '<i class="fas fa-plus"></i> Assign',        editLabel: '<i class="fas fa-check"></i> Update Assignment', modalId: 'modalAssignment', modalTitleId: 'modalAssignmentTitle', addTitle: 'Assign Course to Faculty', editTitle: 'Edit Assignment' },
+  assignments: { formId: 'facultyCourseForm', submitBtnId: 'assignmentSubmitBtn', cancelBtnId: null,             addLabel: '<i class="fas fa-plus"></i> Add',        editLabel: '<i class="fas fa-check"></i> Update Assignment', modalId: 'modalAssignment', modalTitleId: 'modalAssignmentTitle', addTitle: 'Assign Courses to Faculty', editTitle: 'Edit Assignment' },
   schedules:   { formId: 'scheduleForm',      submitBtnId: 'scheduleSubmitBtn', cancelBtnId: 'scheduleCancelBtn', addLabel: '<i class="fas fa-save"></i> Save Schedule', editLabel: '<i class="fas fa-check"></i> Update Schedule',  modalId: null,              modalTitleId: null,                 addTitle: '',               editTitle: '' },
 };
 
@@ -441,6 +441,17 @@ function fillSelect(id, data, labelFn, value = 'id', first = 'Select') {
  * instructor conflicts (same instructor double-booked) are a separate,
  * red issue handled by findScheduleConflicts().
  */
+/**
+ * "No room" is a WARNING state, not an error: a schedule can be saved
+ * without a room while the room assignment is still being worked out.
+ * A room conflict is only possible once both schedules actually have a room.
+ */
+const ROOM_MISSING_HTML = '<span class="instructor-missing" title="No room assigned yet. You can assign one later."><i class="fas fa-triangle-exclamation"></i> No room yet</span>';
+
+function roomCellHtml(s) {
+  return s.room_id ? escapeHtml(s.room_name) : ROOM_MISSING_HTML;
+}
+
 const INSTRUCTOR_MISSING_HTML = '<span class="instructor-missing" title="Instructor not assigned. You can assign one later."><i class="fas fa-triangle-exclamation"></i> Instructor not assigned</span>';
 
 function instructorCellHtml(s) {
@@ -700,15 +711,258 @@ const scheduleCourseCombobox = createCourseCombobox({
     });
   },
 });
-const assignCourseCombobox = createCourseCombobox({
-  gateId: 'assignYearLevel', searchId: 'assignCourseSearch', listId: 'assignCourseList', selectId: 'assignCourse',
-  emptyPlaceholder: 'Select a year level first',
-  getAllowedCourseIds: () => {
-    const yearLevel = $('assignYearLevel').value;
-    if (!yearLevel) return null;
-    return state.courses.filter((c) => Number(c.year_level) === Number(yearLevel)).map((c) => c.id);
-  },
+/* =====================================================
+   FACULTY ASSIGNMENT PICKER (multi-select)
+   Pick an instructor -> filter by Year Level (1st-4th) -> tick as many
+   courses as needed -> Add -> review/uncheck in a confirmation step ->
+   Confirm & Save. A "Save directly" switch skips the confirmation for
+   people who don't want the extra step. Editing an existing assignment
+   reuses the same list in single-choice mode.
+   ===================================================== */
+const ASSIGN_DIRECT_SAVE_KEY = 'ics.assignments.directSave';
+function readDirectSavePref() { try { return localStorage.getItem(ASSIGN_DIRECT_SAVE_KEY) === '1'; } catch (e) { return false; } }
+function writeDirectSavePref(on) { try { localStorage.setItem(ASSIGN_DIRECT_SAVE_KEY, on ? '1' : '0'); } catch (e) { /* storage unavailable -- preference just isn't remembered */ } }
+
+const assignPicker = (() => {
+  const selected = new Set();   // course ids (numbers) ticked to be assigned
+  let yearFilter = '1';         // '1'..'4' or 'all'
+  let mode = 'add';             // 'add' (multi) | 'edit' (single)
+  let searchText = '';
+
+  const courseById = (id) => state.courses.find((c) => Number(c.id) === Number(id));
+  const currentFacultyId = () => Number($('assignFaculty').value) || 0;
+
+  /** Course ids this instructor already has (the row being edited doesn't count against itself). */
+  function alreadyAssignedIds() {
+    const fid = currentFacultyId();
+    return new Set(state.assignments
+      .filter((a) => Number(a.faculty_id) === fid && !(mode === 'edit' && Number(a.id) === Number(editing.assignments)))
+      .map((a) => Number(a.course_id)));
+  }
+
+  function visibleCourses() {
+    const q = searchText.trim().toLowerCase();
+    return state.courses
+      .filter((c) => (yearFilter === 'all' || String(c.year_level) === yearFilter)
+        && (!q || `${c.course_code} ${c.course_title}`.toLowerCase().includes(q)))
+      .sort((a, b) => (Number(a.year_level) - Number(b.year_level))
+        || String(a.semester_type).localeCompare(String(b.semester_type))
+        || String(a.course_code).localeCompare(String(b.course_code)));
+  }
+
+  function renderChips() {
+    const chips = [['1', '1st Year'], ['2', '2nd Year'], ['3', '3rd Year'], ['4', '4th Year'], ['all', 'All']];
+    $('assignYearChips').innerHTML = chips.map(([value, label]) => {
+      const n = value === 'all'
+        ? selected.size
+        : [...selected].filter((id) => { const c = courseById(id); return c && String(c.year_level) === value; }).length;
+      const active = yearFilter === value;
+      return `<button type="button" class="year-chip${active ? ' active' : ''}" data-year="${value}" aria-pressed="${active}">${label}${n ? ` <span class="year-chip-count">${n}</span>` : ''}</button>`;
+    }).join('');
+  }
+
+  function renderList() {
+    const box = $('assignCourseChecklist');
+    const hasFaculty = currentFacultyId() > 0;
+    $('assignSelectAllBtn').disabled = !hasFaculty || mode === 'edit';
+    $('assignClearBtn').disabled = !hasFaculty || mode === 'edit';
+    if (!state.courses.length) { box.innerHTML = '<div class="combobox-empty assign-empty">No courses yet. Add courses first.</div>'; return; }
+    if (!hasFaculty) { box.innerHTML = '<div class="combobox-empty assign-empty"><i class="fas fa-arrow-up"></i> Choose an instructor first.</div>'; return; }
+    const assigned = alreadyAssignedIds();
+    const list = visibleCourses();
+    if (!list.length) { box.innerHTML = '<div class="combobox-empty assign-empty">No matching courses.</div>'; return; }
+    let lastGroup = null;
+    let html = '';
+    list.forEach((c) => {
+      const group = `${c.year_level}|${c.semester_type}`;
+      if (group !== lastGroup) {
+        html += `<div class="assign-group">${escapeHtml(YEAR_LEVEL_LABELS[c.year_level] || 'Year ' + c.year_level)} &middot; ${escapeHtml(SEMESTER_LABELS[c.semester_type] || c.semester_type)}</div>`;
+        lastGroup = group;
+      }
+      const isAssigned = assigned.has(Number(c.id));
+      const isPicked = selected.has(Number(c.id));
+      html += `<label class="assign-course${isAssigned ? ' is-assigned' : ''}${isPicked ? ' is-selected' : ''}" title="${escapeHtml(c.course_code + ' - ' + c.course_title)}">
+        <input type="checkbox" value="${c.id}" ${(isAssigned || isPicked) ? 'checked' : ''} ${isAssigned ? 'disabled' : ''} />
+        <span class="assign-course-main"><strong>${escapeHtml(c.course_code)}</strong><span class="assign-course-title">${escapeHtml(c.course_title)}</span></span>
+        ${isAssigned ? '<span class="assign-tag">Assigned</span>' : ''}
+      </label>`;
+    });
+    box.innerHTML = html;
+  }
+
+  function updateSummary() {
+    const n = selected.size;
+    $('assignSelectedCount').textContent = mode === 'edit' ? '' : `${n} selected`;
+    if (mode === 'add') $('assignmentSubmitBtn').innerHTML = `<i class="fas fa-plus"></i> Add${n ? ` (${n})` : ''}`;
+    renderChips();
+  }
+
+  function renderAll() { renderList(); updateSummary(); }
+
+  /** Back to a blank "add" state (called whenever the modal opens fresh or is closed). */
+  function reset() {
+    mode = 'add';
+    selected.clear();
+    yearFilter = '1';
+    searchText = '';
+    $('assignCourseFilter').value = '';
+    $('assignDirectSave').checked = readDirectSavePref();
+    $('assignDirectWrap').classList.remove('hidden');
+    $('assignSelectAllBtn').classList.remove('hidden');
+    $('assignClearBtn').classList.remove('hidden');
+    renderAll();
+  }
+
+  /** Edit mode: same list, but single-choice, and no confirmation step / bulk buttons. */
+  function beginEdit(assignment) {
+    mode = 'edit';
+    selected.clear();
+    selected.add(Number(assignment.course_id));
+    const course = courseById(assignment.course_id);
+    yearFilter = course ? String(course.year_level) : 'all';
+    searchText = '';
+    $('assignCourseFilter').value = '';
+    $('assignDirectWrap').classList.add('hidden');
+    $('assignSelectAllBtn').classList.add('hidden');
+    $('assignClearBtn').classList.add('hidden');
+    renderAll();
+  }
+
+  $('assignYearChips').addEventListener('click', (e) => {
+    const btn = e.target.closest('.year-chip');
+    if (!btn) return;
+    yearFilter = btn.dataset.year;
+    renderAll();
+  });
+
+  $('assignCourseChecklist').addEventListener('change', (e) => {
+    const cb = e.target;
+    if (!cb.matches('input[type="checkbox"]')) return;
+    const id = Number(cb.value);
+    if (mode === 'edit') {
+      selected.clear();
+      if (cb.checked) selected.add(id);
+      renderAll();
+      return;
+    }
+    if (cb.checked) selected.add(id); else selected.delete(id);
+    cb.closest('.assign-course').classList.toggle('is-selected', cb.checked);
+    updateSummary();   // no list re-render, so the scroll position and focus stay put
+  });
+
+  $('assignCourseFilter').addEventListener('input', (e) => {
+    e.stopPropagation();   // typing in the filter isn't an "unsaved change"
+    searchText = e.target.value;
+    renderList();
+  });
+
+  $('assignSelectAllBtn').addEventListener('click', () => {
+    const assigned = alreadyAssignedIds();
+    visibleCourses().forEach((c) => { if (!assigned.has(Number(c.id))) selected.add(Number(c.id)); });
+    markFormDirty('facultyCourseForm');
+    renderAll();
+  });
+
+  $('assignClearBtn').addEventListener('click', () => { selected.clear(); renderAll(); });
+
+  $('assignFaculty').addEventListener('change', () => {
+    // A course this instructor already has can't also be "to add".
+    const assigned = alreadyAssignedIds();
+    [...selected].forEach((id) => { if (assigned.has(id)) selected.delete(id); });
+    renderAll();
+  });
+
+  $('assignDirectSave').addEventListener('change', (e) => {
+    e.stopPropagation();
+    writeDirectSavePref(e.target.checked);
+  });
+
+  return {
+    reset, beginEdit, renderAll,
+    isEdit: () => mode === 'edit',
+    getSelectedIds: () => [...selected],
+    setSelectedIds: (ids) => { selected.clear(); ids.forEach((id) => selected.add(Number(id))); },
+    isDirectSave: () => $('assignDirectSave').checked,
+  };
+})();
+
+/* --- Confirmation step: review the picked courses, uncheck mistakes, then save --- */
+let assignConfirmIds = [];        // snapshot of what was picked, so an unchecked row can be re-checked
+const assignConfirmChecked = new Set();
+
+function renderAssignConfirm() {
+  const facultyRow = state.faculty.find((f) => Number(f.id) === Number($('assignFaculty').value));
+  const n = assignConfirmChecked.size;
+  $('assignConfirmIntro').innerHTML = `Assign <strong>${n}</strong> course${n === 1 ? '' : 's'} to <strong>${escapeHtml(facultyRow ? facultyRow.faculty_name : '')}</strong>? Uncheck any that were picked by mistake.`;
+  const rows = assignConfirmIds
+    .map((id) => state.courses.find((c) => Number(c.id) === Number(id)))
+    .filter(Boolean)
+    .sort((a, b) => (Number(a.year_level) - Number(b.year_level)) || String(a.course_code).localeCompare(String(b.course_code)));
+  $('assignConfirmList').innerHTML = rows.map((c) => `
+    <label class="checklist-item">
+      <input type="checkbox" value="${c.id}" ${assignConfirmChecked.has(Number(c.id)) ? 'checked' : ''} />
+      <span><strong>${escapeHtml(c.course_code)}</strong> - ${escapeHtml(c.course_title)} <small class="assign-confirm-year">(${escapeHtml(YEAR_LEVEL_LABELS[c.year_level] || c.year_level)})</small></span>
+    </label>`).join('');
+  const saveBtn = $('assignConfirmSaveBtn');
+  saveBtn.disabled = n === 0;
+  saveBtn.innerHTML = `<i class="fas fa-check"></i> Confirm &amp; Save${n ? ` (${n})` : ''}`;
+}
+
+function openAssignConfirm() {
+  assignConfirmIds = assignPicker.getSelectedIds();
+  assignConfirmChecked.clear();
+  assignConfirmIds.forEach((id) => assignConfirmChecked.add(Number(id)));
+  renderAssignConfirm();
+  $('modalAssignConfirm').classList.remove('hidden');
+}
+
+/** "Back": return to the picker, keeping whatever is still checked here. */
+function closeAssignConfirm() {
+  $('modalAssignConfirm').classList.add('hidden');
+  assignPicker.setSelectedIds([...assignConfirmChecked]);
+  assignPicker.renderAll();
+}
+window.closeAssignConfirm = closeAssignConfirm;
+
+$('assignConfirmList').addEventListener('change', (e) => {
+  const cb = e.target;
+  if (!cb.matches('input[type="checkbox"]')) return;
+  if (cb.checked) assignConfirmChecked.add(Number(cb.value)); else assignConfirmChecked.delete(Number(cb.value));
+  renderAssignConfirm();
 });
+$('assignConfirmSaveBtn').addEventListener('click', () => saveAssignments([...assignConfirmChecked]));
+
+async function saveAssignments(courseIds) {
+  const facultyId = Number($('assignFaculty').value);
+  if (!facultyId || !courseIds.length) return;
+  const facultyRow = state.faculty.find((f) => Number(f.id) === facultyId);
+  const confirmBtn = $('assignConfirmSaveBtn');
+  const submitBtn = $('assignmentSubmitBtn');
+  const confirmLabel = confirmBtn.innerHTML;
+  const submitLabel = submitBtn.innerHTML;
+  confirmBtn.disabled = true;
+  submitBtn.disabled = true;
+  const spinner = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+  confirmBtn.innerHTML = spinner;
+  submitBtn.innerHTML = spinner;
+  try {
+    const result = await request('faculty_courses.php', { method: 'POST', body: JSON.stringify({ faculty_id: facultyId, course_ids: courseIds }) });
+    const added = result && typeof result.added === 'number' ? result.added : courseIds.length;
+    const skipped = result && Array.isArray(result.skipped) ? result.skipped : [];
+    let message = `Assigned ${added} course${added === 1 ? '' : 's'} to ${facultyRow ? facultyRow.faculty_name : 'faculty'}.`;
+    if (skipped.length) message += ` Already assigned (skipped): ${skipped.join(', ')}.`;
+    showToast(message, 'success');
+    $('modalAssignConfirm').classList.add('hidden');
+    closeEntityModal('assignments');
+    await loadAll();
+  } catch (err) {
+    showToast(err.message, 'error');
+    confirmBtn.innerHTML = confirmLabel;
+    submitBtn.innerHTML = submitLabel;
+    confirmBtn.disabled = false;
+    submitBtn.disabled = false;
+  }
+}
 
 /** Parses $('scheduleTarget').value ("block:12" / "spare:3") into { type: 'block'|'spare', id } or null if nothing is selected. */
 function getSelectedTarget() {
@@ -816,7 +1070,7 @@ function renderOfferingRow(codeLabel, row) {
     <td>${component === 'laboratory' ? 'LAB' : 'LEC'}</td>
     <td class="offering-cell-editable" data-field="day">${escapeHtml(formatDayPattern(existing.day_of_week))}</td>
     <td class="offering-cell-editable" data-field="time">${formatTimeDisplay(existing.start_time.slice(0, 5))}-${formatTimeDisplay(existing.end_time.slice(0, 5))}</td>
-    <td class="offering-cell-editable" data-field="room">${escapeHtml(existing.room_name || 'No room')}</td>
+    <td class="offering-cell-editable" data-field="room">${roomCellHtml(existing)}</td>
     <td>${instructorCellHtml(existing)}</td>
     <td><i class="fas fa-pen"></i></td>
   </tr>`;
@@ -1043,7 +1297,7 @@ function openQuickEditModal(field, scheduleId) {
     </div>`;
     let roomsList = state.rooms.filter((r) => Number(r.is_active) === 1 || Number(r.id) === Number(existing.room_id));
     roomsList = roomsList.filter((r) => r.room_type === (existing.component === 'laboratory' ? 'laboratory' : 'lecture'));
-    fillSelect('qeRoom', roomsList, (r) => `${r.room_name} - ${r.room_type}` + (Number(r.is_active) === 0 ? ' (Inactive)' : ''), 'id', 'No room selected');
+    fillSelect('qeRoom', roomsList, (r) => `${r.room_name} - ${r.room_type}` + (Number(r.is_active) === 0 ? ' (Inactive)' : ''), 'id', 'No room yet (assign later)');
     $('qeRoom').value = existing.room_id || '';
   }
 
@@ -1318,6 +1572,7 @@ function renderNeedsAttention() {
   const unassignedCourses = state.courses.filter((c) => !state.schedules.some((s) => Number(s.course_id) === Number(c.id))).length;
   const load = facultyLoadStats();
   const noInstructor = state.schedules.filter((s) => !s.faculty_id).length;
+  const noRoom = state.schedules.filter((s) => !s.room_id).length;
 
   const items = [];
   if (conflicts.room > 0) {
@@ -1331,6 +1586,9 @@ function renderNeedsAttention() {
   }
   if (noInstructor > 0) {
     items.push({ icon: 'fa-user-slash', tone: 'warn-amber', title: `${noInstructor} Schedule${noInstructor === 1 ? '' : 's'} Without Instructor`, sub: 'Warning only — assign when ready', view: 'schedules' });
+  }
+  if (noRoom > 0) {
+    items.push({ icon: 'fa-door-closed', tone: 'warn-amber', title: `${noRoom} Schedule${noRoom === 1 ? '' : 's'} Without Room`, sub: 'Warning only — assign when ready', view: 'schedules' });
   }
   if (unassignedCourses > 0) {
     items.push({ icon: 'fa-clipboard-question', tone: 'warn-amber', title: `${unassignedCourses} Unplotted Course${unassignedCourses === 1 ? '' : 's'}`, sub: 'Not yet plotted into any schedule', view: 'courses' });
@@ -1430,8 +1688,6 @@ function findExistingComponentSchedule(courseId, target, schoolYear, component) 
 /** true once the scheduler has clicked "Edit" on an already-saved component, unlocking its fields for this session. Reset whenever the Course/Target/Academic Year selection changes. */
 const componentUnlocked = { lecture: false, laboratory: false };
 const componentHasConflict = { lecture: false, laboratory: false };
-/** true when the component's currently selected Day Pattern + Duration does NOT total the course's required weekly hours exactly (see WEEKLY HOURS VALIDATION below). Blocks Save the same way componentHasConflict does. */
-const componentHoursInvalid = { lecture: false, laboratory: false };
 
 /** The id of the existing schedule row backing this component right now, if any (used as the PUT target and as the live-conflict "ignore self" id). */
 function existingComponentId(component) {
@@ -1451,28 +1707,54 @@ function coursesAssignedToFaculty(facultyId) {
   return state.assignments.filter((a) => Number(a.faculty_id) === Number(facultyId));
 }
 
-function getQualifiedFacultyForCourse(courseId) {
-  const assignedFacultyIds = state.assignments
+/** Faculty ids that are formally assigned to this course in Faculty Course Assignments. */
+function assignedFacultyIdsForCourse(courseId) {
+  return new Set(state.assignments
     .filter((a) => Number(a.course_id) === Number(courseId))
-    .map((a) => Number(a.faculty_id));
+    .map((a) => Number(a.faculty_id)));
+}
+
+/**
+ * Every instructor the scheduler may pick for this course: ALL active
+ * faculty (not just the ones assigned to the course), plus the instructor
+ * already on the schedule being edited even if they were deactivated since.
+ * Being assigned to the course is only an indicator (a check mark and a
+ * group at the top of the list), never a restriction.
+ */
+function getSelectableFacultyForCourse(courseId) {
   const course = state.courses.find((c) => Number(c.id) === Number(courseId));
   const target = getSelectedTarget();
   const schoolYear = $('scheduleSchoolYear').value;
   const anyExisting = course
     ? COMPONENT_TYPES.map((c) => findExistingComponentSchedule(course.id, target, schoolYear, c)).find(Boolean)
     : null;
-  const editingFacultyId = anyExisting ? Number(anyExisting.faculty_id) : null;
-  return state.faculty.filter((f) => assignedFacultyIds.includes(Number(f.id)) && (Number(f.is_active) === 1 || Number(f.id) === editingFacultyId));
+  const editingFacultyId = anyExisting && anyExisting.faculty_id ? Number(anyExisting.faculty_id) : null;
+  return [...state.faculty]
+    .filter((f) => Number(f.is_active) === 1 || Number(f.id) === editingFacultyId)
+    .sort((a, b) => String(a.faculty_name).localeCompare(String(b.faculty_name)));
+}
+
+/** <option>/<optgroup> markup: instructors assigned to this course first (with a check mark), then everyone else. */
+function facultyOptionsHtml(course, selectable, emptyLabel) {
+  const assignedIds = assignedFacultyIdsForCourse(course.id);
+  const optionHtml = (f, mark) => `<option value="${f.id}">${mark ? '\u2713 ' : ''}${escapeHtml(f.faculty_name)}${Number(f.is_active) === 0 ? ' (Inactive)' : ''}</option>`;
+  const assigned = selectable.filter((f) => assignedIds.has(Number(f.id)));
+  const others = selectable.filter((f) => !assignedIds.has(Number(f.id)));
+  let html = `<option value="">${escapeHtml(emptyLabel)}</option>`;
+  if (assigned.length) html += `<optgroup label="\u2713 Assigned to ${escapeHtml(course.course_code)}">${assigned.map((f) => optionHtml(f, true)).join('')}</optgroup>`;
+  if (others.length) html += `<optgroup label="${assigned.length ? 'Other instructors' : 'All instructors'} (not assigned to ${escapeHtml(course.course_code)})">${others.map((f) => optionHtml(f, false)).join('')}</optgroup>`;
+  return html;
 }
 
 function renderSelects() {
   fillCourseSelectGrouped('scheduleCourse', state.courses);
-  fillCourseSelectGrouped('assignCourse', state.courses);
-  fillSelect('assignFaculty', state.faculty, (f) => f.faculty_name);
+  const prevAssignFaculty = $('assignFaculty').value;
+  fillSelect('assignFaculty', state.faculty, (f) => f.faculty_name, 'id', 'Select instructor');
+  if (state.faculty.some((f) => String(f.id) === prevAssignFaculty)) $('assignFaculty').value = prevAssignFaculty;
   updateComponentBlocks();
   updateFacultyOptions();
   scheduleCourseCombobox.updateAvailability();
-  assignCourseCombobox.updateAvailability();
+  assignPicker.renderAll();
   renderTargetOptions();
 }
 
@@ -1768,16 +2050,15 @@ const TT_DAY_COLUMNS = { Monday: 2, Tuesday: 3, Wednesday: 4, Thursday: 5, Frida
 const TT_DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 /**
- * A room is required for every SET type now (SET 1/2 still meet F2F on
- * their alternating week), so this is purely a display label, not a
- * "does it have a room" check. SET 0 is straightforwardly Face-to-Face;
+ * A room is optional while plotting (a missing room only shows a warning),
+ * so this is purely a display label, not a "does it have a room" check. SET 0 is straightforwardly Face-to-Face;
  * SET 1/2 are shown as Hybrid since they rotate week-to-week rather than
  * meeting the same way every time.
  */
 function scheduleModality(s) {
   return {
     label: s.set_type === 'set_0' ? 'F2F' : 'HYBRID',
-    room: s.room_name || 'No room',
+    room: s.room_name || '\u26a0 No room yet',
   };
 }
 
@@ -1993,7 +2274,7 @@ function setComponentFieldsEnabled(component, enabled) {
 function componentSummaryText(schedule) {
   if (!schedule) return '';
   const fac = state.faculty.find((f) => Number(f.id) === Number(schedule.faculty_id));
-  const room = schedule.room_name || 'No room selected';
+  const room = schedule.room_name || '\u26a0 No room yet';
   return `${formatDayPattern(schedule.day_of_week)} ${formatTimeDisplay(schedule.start_time.slice(0, 5))}-${formatTimeDisplay(schedule.end_time.slice(0, 5))} \u00b7 ${room}` + (fac ? ` \u00b7 ${fac.faculty_name}` : ' \u00b7 \u26a0 Instructor not assigned');
 }
 
@@ -2013,11 +2294,8 @@ function refreshSubmitButtonState() {
     return;
   }
   const hasConflict = COMPONENT_TYPES.some((c) => componentHasConflict[c]);
-  const hasBadHours = COMPONENT_TYPES.some((c) => componentHoursInvalid[c]);
-  submitBtn.disabled = hasConflict || hasBadHours;
-  submitBtn.title = hasConflict
-    ? 'Resolve the conflict(s) shown above before saving.'
-    : (hasBadHours ? 'Fix the weekly-hours mismatch shown above before saving.' : '');
+  submitBtn.disabled = hasConflict;
+  submitBtn.title = hasConflict ? 'Resolve the conflict(s) shown above before saving.' : '';
 }
 
 function updateComponentBlocks() {
@@ -2111,7 +2389,7 @@ function toggleFacultyLockBadge(show) {
 function updateFacultyOptions() {
   const course = getSelectedCourse();
   const hint = $('facultyHint');
-  const noInstructorLabel = 'Not assigned — assign later';
+  const noInstructorLabel = 'Not assigned \u2014 assign later';
 
   // Instructor is OPTIONAL -- every branch below leaves the field blank-able
   // and never blocks saving. "Not assigned" is only a warning.
@@ -2121,16 +2399,18 @@ function updateFacultyOptions() {
     $('scheduleFaculty').title = 'Select a course first.';
     if (hint) hint.textContent = '\ud83d\udd12 Select a course first.';
     toggleFacultyLockBadge(false);
+    updateAssignAlsoPrompt();
     return;
   }
 
-  const qualifiedFaculty = getQualifiedFacultyForCourse(course.id);
-  if (!qualifiedFaculty.length) {
+  const selectable = getSelectableFacultyForCourse(course.id);
+  if (!selectable.length) {
     $('scheduleFaculty').innerHTML = `<option value="">${noInstructorLabel}</option>`;
     $('scheduleFaculty').disabled = true;
-    $('scheduleFaculty').title = 'No faculty assigned to this course yet. See Faculty Course Assignments.';
-    if (hint) hint.textContent = '\u26a0 Instructor not assigned. Add one in Faculty Course Assignments.';
+    $('scheduleFaculty').title = 'There are no available instructors yet. Add faculty first.';
+    if (hint) hint.textContent = '\u26a0 No instructors available yet. Add faculty in Faculty Management.';
     toggleFacultyLockBadge(false);
+    updateAssignAlsoPrompt();
     return;
   }
 
@@ -2139,28 +2419,53 @@ function updateFacultyOptions() {
   const sibling = getSiblingScheduleForCourseTarget(course.id, target, schoolYear, currentEditingScheduleIds());
   // A sibling with no instructor has nothing to inherit.
   const inheritedFacultyId = sibling && sibling.faculty_id ? Number(sibling.faculty_id) : null;
-  const inheritedIsQualified = inheritedFacultyId && qualifiedFaculty.some((f) => Number(f.id) === inheritedFacultyId);
+  const inheritedIsListed = inheritedFacultyId && selectable.some((f) => Number(f.id) === inheritedFacultyId);
 
-  if (sibling && inheritedIsQualified) {
-    fillSelect('scheduleFaculty', qualifiedFaculty, (f) => f.faculty_name + (Number(f.is_active) === 0 ? ' (Inactive)' : ''), 'id', noInstructorLabel);
+  if (sibling && inheritedIsListed) {
+    $('scheduleFaculty').innerHTML = facultyOptionsHtml(course, selectable, noInstructorLabel);
     $('scheduleFaculty').value = String(inheritedFacultyId);
     $('scheduleFaculty').disabled = true;
-    $('scheduleFaculty').title = `Instructor inherited from the existing ${course.course_code} schedule for this target — Lecture and Laboratory must share the same instructor.`;
+    $('scheduleFaculty').title = `Instructor inherited from the existing ${course.course_code} schedule for this target \u2014 Lecture and Laboratory must share the same instructor.`;
     const targetLabel = target ? (target.type === 'block' ? blockLabel(state.blocks.find((b) => Number(b.id) === target.id) || {}) : spareLabel(state.spares.find((sp) => Number(sp.id) === target.id) || {})) : 'this target';
     if (hint) hint.innerHTML = `\ud83d\udd12 Instructor inherited from existing <strong>${escapeHtml(course.course_code)}</strong> schedule for <strong>${escapeHtml(targetLabel)}</strong> (${escapeHtml(sibling.component)}).`;
     toggleFacultyLockBadge(true);
+    updateAssignAlsoPrompt();
     return;
   }
 
   const previousValue = $('scheduleFaculty').value;
-  fillSelect('scheduleFaculty', qualifiedFaculty, (f) => f.faculty_name + (Number(f.is_active) === 0 ? ' (Inactive)' : ''), 'id', noInstructorLabel);
+  $('scheduleFaculty').innerHTML = facultyOptionsHtml(course, selectable, noInstructorLabel);
   $('scheduleFaculty').disabled = false;
   $('scheduleFaculty').title = '';
-  if (previousValue && qualifiedFaculty.some((f) => String(f.id) === previousValue)) {
+  if (previousValue && selectable.some((f) => String(f.id) === previousValue)) {
     $('scheduleFaculty').value = previousValue;
   }
   toggleFacultyLockBadge(false);
-  if (hint) hint.textContent = `${qualifiedFaculty.length} eligible instructor${qualifiedFaculty.length === 1 ? '' : 's'} found. You can assign one later.`;
+  const assignedCount = selectable.filter((f) => assignedFacultyIdsForCourse(course.id).has(Number(f.id))).length;
+  if (hint) {
+    hint.textContent = assignedCount
+      ? `\u2713 marks the ${assignedCount} instructor${assignedCount === 1 ? '' : 's'} assigned to ${course.course_code}. You can also pick anyone else, or leave it blank and assign later.`
+      : `No instructor is assigned to ${course.course_code} yet. Pick anyone, or leave it blank and assign later.`;
+  }
+  updateAssignAlsoPrompt();
+}
+
+/**
+ * When the chosen instructor is NOT assigned to this course, offer an
+ * optional tick-box to also add them to Faculty Course Assignments. Leaving
+ * it unticked still saves the schedule with that instructor.
+ */
+function updateAssignAlsoPrompt() {
+  const wrap = $('assignAlsoWrap');
+  if (!wrap) return;
+  const course = getSelectedCourse();
+  const select = $('scheduleFaculty');
+  const facultyId = Number(select.value) || 0;
+  const show = !!course && facultyId > 0 && !select.disabled && !assignedFacultyIdsForCourse(course.id).has(facultyId);
+  wrap.classList.toggle('hidden', !show);
+  if (!show) { $('assignAlsoCheck').checked = false; return; }
+  const fac = state.faculty.find((f) => Number(f.id) === facultyId);
+  $('assignAlsoText').textContent = `Also assign ${fac ? fac.faculty_name : 'this instructor'} to ${course.course_code} (adds them to Faculty Course Assignments)`;
 }
 
 function updateRoomOptions(component) {
@@ -2171,27 +2476,28 @@ function updateRoomOptions(component) {
   if (component === 'lecture') roomsList = roomsList.filter((r) => r.room_type === 'lecture');
   if (component === 'laboratory') roomsList = roomsList.filter((r) => r.room_type === 'laboratory');
 
-  fillSelect('scheduleRoom_' + component, roomsList, (r) => `${r.room_name} - ${r.room_type}` + (Number(r.is_active) === 0 ? ' (Inactive)' : ''), 'id', 'No room selected');
+  fillSelect('scheduleRoom_' + component, roomsList, (r) => `${r.room_name} - ${r.room_type}` + (Number(r.is_active) === 0 ? ' (Inactive)' : ''), 'id', 'No room yet (assign later)');
 }
 
 const SET_TYPE_HINTS = {
-  set_0: 'Always F2F, every meeting — room required.',
+  set_0: 'Always F2F, every meeting.',
   set_1: 'Starts F2F, alternates with Online. Default for 1st & 4th year Lecture. Can share room/time with SET 2 — instructor/block conflicts are still checked.',
   set_2: 'Starts Online, alternates with F2F. Default for 2nd & 3rd year Lecture. Can share room/time with SET 1 — instructor/block conflicts are still checked.',
 };
 
 const ROOM_HINTS = {
-  set_0: 'Face-to-face — room required.',
-  set_1: 'F2F / Online Rotation — room required for its recurring F2F meeting.',
-  set_2: 'Online / F2F Rotation — room required for its recurring F2F meeting.',
+  set_0: 'Optional — leave blank to assign the room later (a warning shows until you do).',
+  set_1: 'Optional — leave blank to assign the room later (a warning shows until you do).',
+  set_2: 'Optional — leave blank to assign the room later (a warning shows until you do).',
 };
 
 function updateRoomRequirement(component) {
   const setType = $('setType_' + component).value;
-  $('roomRequiredMark_' + component).classList.remove('hidden');
+  // Room is never required; the hint just explains that.
+  $('roomRequiredMark_' + component).classList.add('hidden');
   $('roomRequiredHint_' + component).classList.remove('hidden');
   $('roomRequiredHint_' + component).textContent = ROOM_HINTS[setType] || '';
-  $('scheduleRoom_' + component).required = true;
+  $('scheduleRoom_' + component).required = false;
   $('setTypeHint_' + component).textContent = SET_TYPE_HINTS[setType] || '';
 }
 
@@ -2406,18 +2712,13 @@ function getEffectiveDayPattern(component) {
 }
 
 /* =====================================================
-   WEEKLY HOURS VALIDATION (Plot Schedule form)
-   ===================================================== */
+   WEEKLY TOTAL (Plot Schedule form) -- informational only
 
-function componentRequiredWeeklyMinutes(course, component) {
-  if (!course) return null;
-  if (component === 'laboratory') {
-    const units = Number(course.lab_units);
-    return units > 0 ? Math.round(units * 60) : null;
-  }
-  const units = Number(course.lec_units);
-  return units > 0 ? Math.round(units * 60) : null;
-}
+   Duration is chosen by the plotter (Duration per day), never derived from
+   the course's units. This summary just shows what the current pattern adds
+   up to so the plotter can sanity-check it. It never blocks Save. Conflict
+   checks (instructor, block, room) are the only things that do.
+   ===================================================== */
 
 function dayPatternOccurrences(pattern) {
   if (!pattern) return null;
@@ -2425,113 +2726,35 @@ function dayPatternOccurrences(pattern) {
   return days.length || null;
 }
 
-function computeScheduledWeeklyMinutes(component) {
-  const dayPattern = getEffectiveDayPattern(component);
-  const occurrences = dayPatternOccurrences(dayPattern);
-  const durationMin = getDurationMinutes(component);
-  if (!occurrences || !durationMin) return null;
-  return occurrences * durationMin;
-}
-
 function formatHours(totalMinutes) {
   const hrs = Math.round((totalMinutes / 60) * 100) / 100;
   return `${hrs} hour${hrs === 1 ? '' : 's'}`;
 }
 
-function applyDayPatternFiltering(component) {
-  const course = getSelectedCourse();
-  const required = componentRequiredWeeklyMinutes(course, component);
-  const daySelect = $('dayOfWeek_' + component);
-  const durationPresets = [...$('scheduleDuration_' + component).options]
-    .map((o) => o.value)
-    .filter((v) => v !== 'custom')
-    .map(Number);
-
-  Array.from(daySelect.options).forEach((opt) => {
-    if (opt.value === 'Custom') { opt.hidden = false; opt.disabled = false; opt.title = ''; return; }
-    if (required == null) { opt.hidden = false; opt.disabled = false; opt.title = ''; return; }
-    const occurrences = dayPatternOccurrences(opt.value);
-    const fits = occurrences && durationPresets.some((mins) => mins * occurrences === required);
-    opt.disabled = !fits;
-    opt.hidden = !fits;
-    opt.title = fits ? '' : `No duration option totals ${formatHours(required)}/week with this pattern.`;
-  });
-}
-
-function applyDurationFiltering(component) {
-  const course = getSelectedCourse();
-  const required = componentRequiredWeeklyMinutes(course, component);
-  const dayPattern = getEffectiveDayPattern(component);
-  const occurrences = dayPatternOccurrences(dayPattern);
-  const durationSelect = $('scheduleDuration_' + component);
-
-  Array.from(durationSelect.options).forEach((opt) => {
-    if (opt.value === 'custom') { opt.hidden = false; opt.disabled = false; return; }
-    if (required == null || !occurrences) { opt.hidden = false; opt.disabled = false; return; }
-    const fits = Number(opt.value) * occurrences === required;
-    opt.disabled = !fits;
-    opt.hidden = !fits;
-  });
-}
-
-function ensureValidComponentDefaults(component) {
-  applyDayPatternFiltering(component);
-  const daySelect = $('dayOfWeek_' + component);
-  if (daySelect.options[daySelect.selectedIndex]?.disabled) {
-    const firstValid = [...daySelect.options].find((o) => !o.disabled);
-    if (firstValid) setDayPatternUI(component, firstValid.value);
-  }
-
-  applyDurationFiltering(component);
-  const durationSelect = $('scheduleDuration_' + component);
-  if (durationSelect.options[durationSelect.selectedIndex]?.disabled) {
-    const firstValid = [...durationSelect.options].find((o) => !o.disabled);
-    if (firstValid) durationSelect.value = firstValid.value;
-  }
-  updateEndTimeFromDuration(component);
-}
-
 function renderWeeklyHoursSummary(component) {
   const el = $('weeklyHoursSummary_' + component);
   if (!el) return;
-  const course = getSelectedCourse();
-  const required = componentRequiredWeeklyMinutes(course, component);
 
-  if (required == null) {
+  const occurrences = dayPatternOccurrences(getEffectiveDayPattern(component));
+  const perDay = getDurationMinutes(component);
+
+  if (!occurrences || !perDay) {
     el.innerHTML = '';
     el.className = 'weekly-hours-summary';
-    componentHoursInvalid[component] = false;
     return;
   }
 
-  const scheduled = computeScheduledWeeklyMinutes(component);
-  const isValid = scheduled != null && scheduled === required;
-  componentHoursInvalid[component] = scheduled != null && !isValid;
-
-  const stateClass = scheduled == null ? 'pending' : (isValid ? 'valid' : 'invalid');
-  const statusIcon = scheduled == null ? 'fa-circle-question' : (isValid ? 'fa-circle-check' : 'fa-triangle-exclamation');
-  const statusText = scheduled == null
-    ? 'Set a day pattern and duration to check.'
-    : (isValid
-      ? `VALID - matches the required ${formatHours(required)}/week.`
-      : `INVALID - course requires ${formatHours(required)}/week, but the selected schedule totals ${formatHours(scheduled)}/week.`);
-
-  el.className = 'weekly-hours-summary ' + stateClass;
+  el.className = 'weekly-hours-summary info';
   el.innerHTML = `
     <div class="weekly-hours-rows">
-      <div class="weekly-hours-row"><span>Required weekly hours:</span> <strong>${formatHours(required)}</strong></div>
-      <div class="weekly-hours-row"><span>Scheduled weekly hours:</span> <strong>${scheduled == null ? '\u2013' : formatHours(scheduled)}</strong></div>
-    </div>
-    <div class="weekly-hours-status"><i class="fas ${statusIcon}"></i> ${escapeHtml(statusText)}</div>`;
+      <div class="weekly-hours-row"><span>Per meeting day:</span> <strong>${formatHours(perDay)}</strong></div>
+      <div class="weekly-hours-row"><span>Meeting days:</span> <strong>${occurrences}</strong></div>
+      <div class="weekly-hours-row"><span>Total per week:</span> <strong>${formatHours(perDay * occurrences)}</strong></div>
+    </div>`;
 }
 
-function refreshWeeklyHoursUI(component, { autoCorrect = false } = {}) {
-  if (autoCorrect) {
-    ensureValidComponentDefaults(component);
-  } else {
-    applyDayPatternFiltering(component);
-    applyDurationFiltering(component);
-  }
+/** Re-renders the weekly total, Save button state and live conflict check after any Day Pattern / Start / Duration change. */
+function refreshWeeklyHoursUI(component) {
   renderWeeklyHoursSummary(component);
   refreshSubmitButtonState();
   checkLiveConflict(component);
@@ -2588,6 +2811,37 @@ function filteredSchedules() {
     return true;
   });
 }
+
+/** Which instructors' course lists are currently expanded in the Faculty Course Assignments table. */
+const expandedAssignmentFaculty = new Set();
+
+/** Faculty Course Assignment rows grouped so each instructor appears once, with their courses inside. */
+function groupedAssignments() {
+  const groups = new Map();
+  state.assignments.forEach((a) => {
+    const fid = Number(a.faculty_id);
+    if (!groups.has(fid)) groups.set(fid, { id: fid, faculty_id: fid, faculty_name: a.faculty_name, courses: [] });
+    groups.get(fid).courses.push({ assignment_id: a.id, course_id: a.course_id, course_code: a.course_code, course_title: a.course_title });
+  });
+  const list = [...groups.values()];
+  list.forEach((g) => g.courses.sort((x, y) => String(x.course_code).localeCompare(String(y.course_code))));
+  return list.sort((x, y) => String(x.faculty_name).localeCompare(String(y.faculty_name)));
+}
+
+function toggleAssignmentGroup(facultyId) {
+  const id = Number(facultyId);
+  if (expandedAssignmentFaculty.has(id)) expandedAssignmentFaculty.delete(id); else expandedAssignmentFaculty.add(id);
+  renderTables();
+}
+window.toggleAssignmentGroup = toggleAssignmentGroup;
+
+/** "+" on an instructor's row: open the Assign modal with that instructor already chosen. */
+function assignMoreToFaculty(facultyId) {
+  openEntityModal('assignments');
+  $('assignFaculty').value = String(facultyId);
+  assignPicker.renderAll();
+}
+window.assignMoreToFaculty = assignMoreToFaculty;
 
 function renderTables() {
   const coursesForTable = coursesYearFilter ? state.courses.filter((c) => String(c.year_level) === coursesYearFilter) : state.courses;
@@ -2648,14 +2902,31 @@ function renderTables() {
     rowActions: (r) => `<button class="btn btn-secondary btn-sm" onclick="editRoom(${r.id})" title="Edit" aria-label="Edit room"><i class="fas fa-pen"></i></button> <button class="btn btn-danger btn-sm" onclick="del('rooms',${r.id})" title="Delete" aria-label="Delete room"><i class="fas fa-trash"></i></button>`,
   });
 
+  // One row per instructor (the name appears once); their courses are
+  // tucked behind a View button so the table stays short.
   renderDataTable('assignmentsTable', [
     { key: 'faculty_name', label: 'Faculty' },
-    { key: 'course_code', label: 'Course Code' },
-    { key: 'course_title', label: 'Course Title' },
-  ], state.assignments, {
+    { key: 'course_count', label: 'Courses',
+      searchValue: (g) => g.courses.map((c) => `${c.course_code} ${c.course_title}`).join(' '),
+      sortValue: (g) => g.courses.length,
+      render: (g) => {
+        const open = expandedAssignmentFaculty.has(Number(g.faculty_id));
+        const list = open ? `<div class="assign-group-list">${g.courses.map((c) => `
+          <div class="assign-group-row">
+            <span class="assign-group-code">${escapeHtml(c.course_code)}</span>
+            <span class="assign-group-title">${escapeHtml(c.course_title)}</span>
+            <span class="assign-group-actions">
+              <button class="btn btn-secondary btn-sm" onclick="editAssignment(${c.assignment_id})" title="Edit" aria-label="Edit ${escapeHtml(c.course_code)}"><i class="fas fa-pen"></i></button>
+              <button class="btn btn-danger btn-sm" onclick="del('assignments',${c.assignment_id})" title="Remove" aria-label="Remove ${escapeHtml(c.course_code)}"><i class="fas fa-trash"></i></button>
+            </span>
+          </div>`).join('')}</div>` : '';
+        return `<button type="button" class="btn btn-secondary btn-sm assign-view-btn" onclick="toggleAssignmentGroup(${g.faculty_id})" aria-expanded="${open}">
+          <i class="fas fa-chevron-${open ? 'down' : 'right'}"></i> ${open ? 'Hide' : 'View'} ${g.courses.length} course${g.courses.length === 1 ? '' : 's'}</button>${list}`;
+      } },
+  ], groupedAssignments(), {
     emptyIcon: 'fa-user-tie',
     emptyMessage: 'No faculty-course assignments yet.',
-    rowActions: (a) => `<button class="btn btn-secondary btn-sm" onclick="editAssignment(${a.id})" title="Edit" aria-label="Edit assignment"><i class="fas fa-pen"></i></button> <button class="btn btn-danger btn-sm" onclick="del('assignments',${a.id})" title="Delete" aria-label="Delete assignment"><i class="fas fa-trash"></i></button>`,
+    rowActions: (g) => `<button class="btn btn-secondary btn-sm" onclick="assignMoreToFaculty(${g.faculty_id})" title="Assign more courses" aria-label="Assign more courses to ${escapeHtml(g.faculty_name)}"><i class="fas fa-plus"></i></button>`,
   });
 
   renderSchedulesTable();
@@ -2674,7 +2945,7 @@ const SCHEDULES_TABLE_COLUMNS = [
       const m = scheduleModality(s);
       const setTag = setRotationTagHtml(s.set_type);
       return m.label === 'F2F'
-        ? `<span class="tt-modality tt-modality-f2f">F2F</span>${setTag} &bull; ${escapeHtml(m.room)}`
+        ? `<span class="tt-modality tt-modality-f2f">F2F</span>${setTag} &bull; ${s.room_id ? escapeHtml(m.room) : ROOM_MISSING_HTML}`
         : `<span class="tt-modality tt-modality-online">ONLINE</span>${setTag}`;
     } },
 ];
@@ -2784,8 +3055,7 @@ function cancelEdit(entity, { keepPlottingContext = false } = {}) {
     renderOfferingOverview();
   }
   if (entity === 'assignments') {
-    assignCourseCombobox.syncDisplay();
-    assignCourseCombobox.updateAvailability();
+    assignPicker.reset();
   }
 }
 window.cancelEdit = cancelEdit;
@@ -2839,11 +3109,7 @@ function editAssignment(id) {
   const a = state.assignments.find((x) => Number(x.id) === id);
   if (!a) return;
   $('assignFaculty').value = a.faculty_id;
-  const course = state.courses.find((c) => Number(c.id) === Number(a.course_id));
-  $('assignYearLevel').value = course ? course.year_level : '';
-  assignCourseCombobox.updateAvailability();
-  $('assignCourse').value = a.course_id;
-  assignCourseCombobox.syncDisplay();
+  assignPicker.beginEdit(a);
   startEdit('assignments', id);
 }
 window.editAssignment = editAssignment;
@@ -2889,7 +3155,6 @@ function resetComponentFields(component) {
   componentHasConflict[component] = false;
   $('weeklyHoursSummary_' + component).innerHTML = '';
   $('weeklyHoursSummary_' + component).className = 'weekly-hours-summary';
-  componentHoursInvalid[component] = false;
 }
 
 function prefillComponentFields(component, schedule) {
@@ -2923,6 +3188,7 @@ function unlockComponentBlock(component) {
     if (!$('scheduleFaculty').disabled) {
       const stillQualified = [...$('scheduleFaculty').options].some((o) => o.value === String(existing.faculty_id));
       if (stillQualified) $('scheduleFaculty').value = String(existing.faculty_id);
+      updateAssignAlsoPrompt();
     }
     updateRoomOptions(component);
     $('scheduleRoom_' + component).value = existing.room_id || '';
@@ -3062,6 +3328,7 @@ document.querySelectorAll('[data-quick-open-modal]').forEach((btn) => btn.addEve
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (!$('confirmOverlay').classList.contains('hidden')) { closeConfirm(false); return; }
+  if (!$('modalAssignConfirm').classList.contains('hidden')) { closeAssignConfirm(); return; }
   if (!$('modalInstructorConflict').classList.contains('hidden')) { closeInstructorConflictModal(); return; }
   Object.keys(formConfig).forEach((entity) => {
     const cfg = formConfig[entity];
@@ -3113,7 +3380,6 @@ const validationRules = {
   roomName: { required: true, label: 'Room name' },
 
   assignFaculty: { required: true, label: 'Faculty' },
-  assignCourse: { required: true, label: 'Course' },
 
   scheduleSchoolYear: { required: true, pattern: /^\d{4}-\d{4}$/, label: 'School year', message: 'School year must be in the format YYYY-YYYY (e.g. 2026-2027).' },
   scheduleCourse: { required: true, label: 'Course' },
@@ -3135,7 +3401,7 @@ const formFieldMap = {
   blockForm: ['blockYearLevel', 'numberOfBlocks'],
   facultyForm: ['facultyName', 'maxPreparations'],
   roomForm: ['roomName'],
-  facultyCourseForm: ['assignFaculty', 'assignCourse'],
+  facultyCourseForm: ['assignFaculty'],
   scheduleForm: ['scheduleSchoolYear', 'scheduleCourse', 'scheduleTarget', 'scheduleFaculty', 'startTime_lecture', 'endTime_lecture', 'startTime_laboratory', 'endTime_laboratory'],
 };
 
@@ -3487,7 +3753,37 @@ $('importFileInput').addEventListener('change', async () => {
 formSubmit('courseForm', () => ({ course_code: $('courseCode').value, course_title: $('courseTitle').value, year_level: $('courseYear').value, semester_type: $('courseSemester').value, lec_units: $('lecUnits').value, lab_units: $('labUnits').value, category: $('category').value, max_students: $('courseMaxStudents').value }), 'courses.php', 'courses', null, confirmCourseEditImpact);
 formSubmit('facultyForm', () => ({ faculty_name: $('facultyName').value, max_preparations: $('maxPreparations').value, is_active: $('facultyActive').checked ? 1 : 0 }), 'faculty.php', 'faculty');
 formSubmit('roomForm', () => ({ room_name: $('roomName').value, room_type: $('roomType').value, is_active: $('roomActive').checked ? 1 : 0 }), 'rooms.php', 'rooms');
-formSubmit('facultyCourseForm', () => ({ faculty_id: $('assignFaculty').value, course_id: $('assignCourse').value }), 'faculty_courses.php', 'assignments');
+// Faculty Assignments: multi-select Add (with optional confirmation step) or
+// single-course Edit. Handled here instead of formSubmit() because one Add
+// can create many rows.
+$('facultyCourseForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!validateForm('facultyCourseForm')) return;
+  const ids = assignPicker.getSelectedIds();
+  if (!ids.length) {
+    showToast('Pick at least one course to assign.', 'error');
+    return;
+  }
+  if (assignPicker.isEdit()) {
+    const submitBtn = $('assignmentSubmitBtn');
+    const originalLabel = submitBtn.innerHTML;
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+    try {
+      await request('faculty_courses.php', { method: 'PUT', body: JSON.stringify({ id: editing.assignments, faculty_id: $('assignFaculty').value, course_id: ids[0] }) });
+      showToast('Updated successfully', 'success');
+      closeEntityModal('assignments');
+      await loadAll();
+    } catch (err) {
+      showToast(err.message, 'error');
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = originalLabel;
+    }
+    return;
+  }
+  if (assignPicker.isDirectSave()) await saveAssignments(ids);
+  else openAssignConfirm();
+});
 
 /**
  * Custom submit handler for the Subject Offering form (not the generic
@@ -3529,6 +3825,7 @@ async function submitScheduleForm() {
     block_id: target && target.type === 'block' ? target.id : null,
     spare_id: target && target.type === 'spare' ? target.id : null,
     faculty_id: $('scheduleFaculty').value,
+    assign_faculty_to_course: !$('assignAlsoWrap').classList.contains('hidden') && $('assignAlsoCheck').checked,
     components: componentsPayload,
   };
 
@@ -3582,9 +3879,10 @@ COMPONENT_TYPES.forEach((c) => {
   $('endTime_' + c).addEventListener('change', () => { renderWeeklyHoursSummary(c); refreshSubmitButtonState(); checkLiveConflict(c); });
   $('setType_' + c).addEventListener('change', () => { updateRoomRequirement(c); checkLiveConflict(c); });
   $('scheduleRoom_' + c).addEventListener('change', () => checkLiveConflict(c));
+  $('scheduleFaculty').addEventListener('change', () => { updateAssignAlsoPrompt(); checkLiveConflict(c); });
   $('dayOfWeek_' + c).addEventListener('change', () => {
     $('customDaysRow_' + c).classList.toggle('hidden', $('dayOfWeek_' + c).value !== 'Custom');
-    refreshWeeklyHoursUI(c, { autoCorrect: false });
+    refreshWeeklyHoursUI(c);
   });
   $('customDaysRow_' + c).querySelectorAll('input[type="checkbox"]').forEach((cb) => {
     cb.addEventListener('change', () => refreshWeeklyHoursUI(c));

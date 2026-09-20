@@ -36,6 +36,8 @@
 --   * schedules.school_year, schedules.day_of_week as a flexible day list
 --   * is_active on faculty and rooms; faculty_courses.created_at
 --   * instructor is optional (schedules.faculty_id may be NULL)
+--   * room is optional (schedules.room_id may be NULL) -- a schedule can be saved
+--     with no room yet and the room assigned later
 --   * one schedule row per Course + Block/SPARE + School Year + Component
 --   * CHECK constraints on courses, faculty and SPARE allocations
 --   * Blocks, Block Courses, SPARE groups and SPARE allocations
