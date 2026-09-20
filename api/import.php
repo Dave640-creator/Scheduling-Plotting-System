@@ -104,7 +104,7 @@ try {
     $rowNum = 1; // header occupies row 1 in the file
 
     if ($type === 'courses') {
-        $stmt = $pdo->prepare('INSERT INTO courses(course_code,course_title,year_level,semester_type,lec_units,lab_units,category) VALUES(?,?,?,?,?,?,?)');
+        $stmt = $pdo->prepare('INSERT INTO courses(course_code,course_title,year_level,semester_type,lec_units,lab_units,category,max_students) VALUES(?,?,?,?,?,?,?,?)');
         $validSemesters = ['first_semester', 'second_semester', 'summer'];
         $validCategories = ['major', 'ge', 'pathfit', 'nstp', 'luxmundi', 'elective', 'other'];
 
@@ -145,7 +145,8 @@ try {
             if (!in_array($category, $validCategories, true)) $category = 'major';
 
             try {
-                $stmt->execute([$code, $title, (int)$year, $sem, $lecUnits, $labUnits, $category]);
+                // Default Course Capacity: 30 with a Laboratory component, 45 pure lecture.
+                $stmt->execute([$code, $title, (int)$year, $sem, $lecUnits, $labUnits, $category, $labUnits > 0 ? 30 : 45]);
                 $inserted++;
             } catch (PDOException $e) {
                 $errors[] = $e->getCode() === '23000'

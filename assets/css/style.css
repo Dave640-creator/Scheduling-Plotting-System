@@ -2149,27 +2149,47 @@ tbody tr:last-child td {
 .login-card h2 {
   text-align: center;
   color: var(--text-primary);
-  margin-bottom: var(--spacing-xs);
-}
-
-.login-card p.subtitle {
-  text-align: center;
-  color: var(--text-secondary);
-  font-size: 14px;
   margin-bottom: var(--spacing-xl);
 }
 
-.login-hint {
-  text-align: center;
+/* Minimal login: full-width fields, no status ticks -- the border colour and
+   the error line already show validity. */
+.login-card .form-group input,
+.login-card .field-wrap input {
+  display: block;
+  width: 100%;
+}
+
+.login-card .field-status-icon {
+  display: none !important;
+}
+
+/* Show / hide password eye, inside the right edge of the password field. */
+.password-toggle {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
   color: var(--text-light);
-  font-size: 12px;
-  margin-top: -18px;
-  margin-bottom: var(--spacing-xl);
-  line-height: 1.5;
+  font-size: 15px;
+  cursor: pointer;
 }
 
-.login-hint strong {
-  color: var(--text-secondary);
+.password-toggle:hover {
+  color: var(--text-primary);
+}
+
+#loginPassword::-ms-reveal,
+#loginPassword::-ms-clear {
+  display: none;
 }
 
 .login-card form {

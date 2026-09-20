@@ -42,11 +42,6 @@ Recent activity
 
 Quick actions
 
-<<<<<<< Updated upstream
-Plot Schedule
-
-The scheduler follows this general flow:
-=======
 The conflict rule itself was corrected to match how SET 0/1/2 actually work. **Important: this rule governs ROOM conflicts only.** Instructor and section conflicts are always checked independently, at the same day/time, regardless of which SETs are involved -- the SET 1/SET 2 alternation never excuses a faculty or a section being double-booked, only a room being shared.
 - **SET 0** is always face-to-face and never alternates, so it room-conflicts with anything at the same room/time
 - **The same alternating set** (SET 1 + SET 1, or SET 2 + SET 2) always lands on the same week, so it room-conflicts
@@ -58,7 +53,11 @@ The conflict rule itself was corrected to match how SET 0/1/2 actually work. **I
 - The SET a course starts with is only a **default**: Laboratory = SET 0; Lecture = SET 1 for 1st/4th year, SET 2 for 2nd/3rd year. It is not a restriction.
 - The room-conflict rule (`sets_conflict()`) is unchanged.
 
+<<<<<<< HEAD
 The default lives in `default_set_type()` in `api/schedules.php` (authoritative; `allowed_set_types()` now returns all three) and is mirrored in `assets/js/app.js` (`defaultSetType()` / `setsConflict()`). `database/migration_set_by_component.sql` is a one-time data fix for the old locked rule -- do NOT run it now, it would overwrite the SETs you chose.
+=======
+The default lives in `default_set_type()` in `api/schedules.php` (authoritative; `allowed_set_types()` now returns all three) and is mirrored in `assets/js/app.js` (`defaultSetType()` / `setsConflict()`). The old one-time SET data-fix migration has been removed -- the SET is chosen per schedule and is never overwritten by the database file.
+>>>>>>> 6260a01 (added default max students)
 
 ## Instructor Is Optional While Plotting (2026-09-19)
 
@@ -69,8 +68,11 @@ Plotting usually happens before final instructor assignment, so a schedule can n
 - **Instructor double-booked** -> still a real conflict (red) and still blocks the save. A missing instructor is never treated as a conflict, and two unassigned schedules never conflict with each other.
 - Every instructor-specific rule (eligibility for the course, active status, max preparations, Lecture/Lab same-instructor, double-booking) runs only once an instructor is chosen, so assigning one later is when it gets checked.
 
-Run `database/migration_instructor_optional.sql` once if you already had a copy of the database (`schedules.faculty_id` becomes nullable). Fresh installs of `ics_plotting.sql` already include it.
->>>>>>> Stashed changes
+`schedules.faculty_id` is nullable. This is already built into `database/ics_plotting.sql`; no migration is needed.
+
+Plot Schedule
+
+The scheduler follows this general flow:
 
 Academic Year → Year Level → Block/SPARE → Course Offering → Component → Schedule Details
 
@@ -148,7 +150,7 @@ Laboratory units
 
 Category
 
-Optional course capacity
+Course capacity (default 30 for a course with a Lab, 45 for pure lecture; editable)
 
 Course capacity is informational only. It is not used as a hard scheduling restriction.
 
@@ -498,13 +500,7 @@ ics_plotting_system/
 │       └── tcgc-logo.jpg
 │
 ├── database/
-│   ├── ics_plotting.sql
-│   ├── migration_delivery_mode_hybrid.sql
-│   ├── migration_fixes_2026-07-14.sql
-│   ├── migration_fixes_2026-08-01.sql
-│   ├── migration_fixes_2026-08-06.sql
-│   ├── migration_fixes_2026-08-21.sql
-│   └── migration_subject_offering.sql
+│   └── ics_plotting.sql          <- the ONE complete database file (schema + courses + instructors); no migration files
 │
 └── UI_IMPROVEMENTS.md
 
@@ -624,11 +620,11 @@ Keep DB_HOST as 127.0.0.1 when relying on the configured TCP port.
 
 Step 4 — Import the Database
 
-Open phpMyAdmin and import:
+Create an empty database (locally: `ics_plotting_system`; online: the database created in your hosting panel), open it in phpMyAdmin and import:
 
 database/ics_plotting.sql
 
-The SQL file creates the database, tables, constraints, and initial sample records.
+This ONE file is the complete database: it creates all tables and constraints, and loads the starter data (login, rooms, blocks, the 16 instructors, all 63 BSCS 2023-2024 curriculum courses, and the Block-Course assignments). No migration files are needed. Online, also set the database host/name/user/password in `api/config.php`. **It drops and recreates every table, so importing it erases existing data -- export your current database first if you want to keep it.**
 
 Because the current Block/SPARE design is a breaking schema change, a fresh import of ics_plotting.sql is recommended for a new installation rather than mixing old Section-based data with the new schema.
 
@@ -756,7 +752,7 @@ Are connected to courses through block_courses.
 
 Course Capacity
 
-courses.max_students is optional and informational.
+courses.max_students defaults to 30 (course has a Lab) or 45 (pure lecture), can be edited, and is informational.
 
 It is not:
 

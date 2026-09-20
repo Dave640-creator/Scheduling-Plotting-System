@@ -271,16 +271,28 @@ function openEntityModal(entity) {
 }
 window.openEntityModal = openEntityModal;
 
-/** Course Capacity is fully automatic now, driven by Lab Units: 30 for a
-    course with a Laboratory component, 45 for pure lecture (Lab Units =
-    0). No manual override -- always recomputed live as Lab Units changes. */
+/** Course Capacity has a DEFAULT driven by Lab Units -- 30 for a course with
+    a Laboratory component, 45 for pure lecture (Lab Units = 0) -- but it is
+    editable. The default keeps following Lab Units until the scheduler types
+    their own number; a typed number is never overwritten. */
+function defaultCourseCapacity() {
+  return parseFloat($('labUnits').value || '0') > 0 ? 30 : 45;
+}
 function syncCourseCapacityFromLabUnits() {
-  const hasLab = parseFloat($('labUnits').value || '0') > 0;
-  const value = hasLab ? 30 : 45;
-  $('courseMaxStudents').value = String(value);
-  $('courseMaxStudentsDisplay').value = `${value} (${hasLab ? 'has Lab' : 'pure lecture'})`;
+  const input = $('courseMaxStudents');
+  if (input.dataset.manual === '1') return;
+  input.value = String(defaultCourseCapacity());
 }
 $('labUnits').addEventListener('input', syncCourseCapacityFromLabUnits);
+$('courseMaxStudents').addEventListener('input', () => {
+  const input = $('courseMaxStudents');
+  input.dataset.manual = input.value.trim() === '' ? '' : '1';
+});
+// Left blank -> fall back to the default instead of saving "no capacity".
+$('courseMaxStudents').addEventListener('blur', () => {
+  const input = $('courseMaxStudents');
+  if (input.value.trim() === '') { input.dataset.manual = ''; syncCourseCapacityFromLabUnits(); }
+});
 
 function closeEntityModal(entity) {
   const cfg = formConfig[entity];
@@ -312,9 +324,19 @@ async function requestCancelEdit(entity) {
 }
 window.requestCancelEdit = requestCancelEdit;
 
+/** Login password field: show the text (eye-slash icon) or hide it as dots (eye icon). */
+function setPasswordVisible(show) {
+  $('loginPassword').type = show ? 'text' : 'password';
+  const btn = $('togglePasswordBtn');
+  btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+  btn.setAttribute('aria-pressed', String(show));
+  btn.innerHTML = show ? '<i class="fas fa-eye-slash"></i>' : '<i class="fas fa-eye"></i>';
+}
+
 function showLogin() {
   $('appShell').classList.add('hidden');
   $('loginScreen').classList.remove('hidden');
+  setPasswordVisible(false); // never leave the password showing after a logout / expired session
   const btn = $('loginSubmitBtn');
   btn.disabled = false;
   btn.innerHTML = '<i class="fas fa-right-to-bracket"></i> Log In';
@@ -2745,6 +2767,7 @@ function cancelEdit(entity, { keepPlottingContext = false } = {}) {
   const keptYearLevel = (entity === 'schedules' && keepPlottingContext) ? $('scheduleYearLevel').value : null;
   const keptSemester = (entity === 'schedules' && keepPlottingContext) ? $('scheduleSemester').value : null;
   $(cfg.formId).reset();
+  if (entity === 'courses') $('courseMaxStudents').dataset.manual = '';
   clearFormDirty(cfg.formId);
   clearValidationState(cfg.formId);
   if (cfg.modalTitleId) $(cfg.modalTitleId).textContent = cfg.addTitle;
@@ -2777,7 +2800,17 @@ function editCourse(id) {
   $('lecUnits').value = c.lec_units;
   $('labUnits').value = c.lab_units;
   $('category').value = c.category;
-  syncCourseCapacityFromLabUnits();
+  // Show the saved capacity. A value that differs from the default is a custom
+  // one and stays put; a default (or empty) capacity keeps following Lab Units.
+  const capInput = $('courseMaxStudents');
+  const storedCap = Number(c.max_students);
+  if (storedCap > 0 && storedCap !== defaultCourseCapacity()) {
+    capInput.value = String(storedCap);
+    capInput.dataset.manual = '1';
+  } else {
+    capInput.dataset.manual = '';
+    syncCourseCapacityFromLabUnits();
+  }
   startEdit('courses', id);
 }
 window.editCourse = editCourse;
@@ -3064,7 +3097,7 @@ const validationRules = {
   courseYear: { required: true, numeric: true, min: 1, max: 4, label: 'Year level' },
   lecUnits: { numeric: true, min: 0, label: 'Lecture units' },
   labUnits: { numeric: true, min: 0, label: 'Laboratory units' },
-  courseMaxStudents: { numeric: true, min: 1, label: 'Course capacity', message: 'Course capacity, if provided, must be a positive number.' },
+  courseMaxStudents: { pattern: /^[1-9]\d*$/, label: 'Course capacity', message: 'Course capacity must be a whole number of 1 or more.' },
 
   blockYearLevel: { required: true, numeric: true, min: 1, max: 4, label: 'Year level' },
   numberOfBlocks: { required: true, numeric: true, min: 1, max: 20, label: 'Number of blocks', message: 'Number of blocks must be between 1 and 20.' },
@@ -3605,6 +3638,13 @@ if (coursesYearFilterEl) {
     st.page = 1;
     renderTables();
   });
+});
+
+// mousedown would pull focus off the password field and trigger its "required" error.
+$('togglePasswordBtn').addEventListener('mousedown', (e) => e.preventDefault());
+$('togglePasswordBtn').addEventListener('click', () => {
+  setPasswordVisible($('loginPassword').type === 'password');
+  $('loginPassword').focus();
 });
 
 $('loginForm').addEventListener('submit', async (e) => {

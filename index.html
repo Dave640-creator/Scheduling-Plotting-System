@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TCGC ICS Plotting System</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link rel="stylesheet" href="assets/css/style.css?v=2" />
+  <link rel="stylesheet" href="assets/css/style.css?v=3" />
 </head>
 <body>
   <!-- Login Screen -->
@@ -16,16 +16,17 @@
         <img src="assets/img/ics-logo.png" alt="ICS Logo" />
       </div>
       <h2>ICS Plotting System</h2>
-      <p class="subtitle">Sign in to continue</p>
-      <p class="login-hint">First time? Default account is <strong>institute_head</strong> -- see the project README for the password.</p>
       <form id="loginForm">
         <div class="form-group">
           <label for="loginUsername"><i class="fas fa-user"></i> Username</label>
-          <input id="loginUsername" autocomplete="username" required />
+          <input id="loginUsername" value="institute_head" autocomplete="username" required />
         </div>
         <div class="form-group">
           <label for="loginPassword"><i class="fas fa-lock"></i> Password</label>
-          <input id="loginPassword" type="password" autocomplete="current-password" required />
+          <div class="field-wrap">
+            <input id="loginPassword" type="password" autocomplete="current-password" required />
+            <button id="togglePasswordBtn" class="password-toggle" type="button" aria-label="Show password" aria-pressed="false"><i class="fas fa-eye"></i></button>
+          </div>
         </div>
         <p id="loginError" class="login-error"></p>
         <button id="loginSubmitBtn" class="btn btn-primary full-width" type="submit">
@@ -988,10 +989,9 @@
             </select>
           </div>
           <div class="form-group">
-            <label for="courseMaxStudentsDisplay"><i class="fas fa-user-group"></i> Course Capacity</label>
-            <input id="courseMaxStudentsDisplay" type="text" disabled />
-            <input id="courseMaxStudents" type="hidden" />
-            <p class="field-hint">Set automatically from Lab Units: 30 if this course has a Laboratory component, 45 if it's pure lecture (Lab Units = 0). Used for deciding when SPARE allocation is needed -- not enforced when plotting.</p>
+            <label for="courseMaxStudents"><i class="fas fa-user-group"></i> Course Capacity</label>
+            <input id="courseMaxStudents" type="number" min="1" step="1" />
+            <p class="field-hint">Default: 30 if this course has a Laboratory component, 45 if it's pure lecture (Lab Units = 0). You can change it. Used for deciding when SPARE allocation is needed -- not enforced when plotting.</p>
           </div>
         </form>
       </div>
